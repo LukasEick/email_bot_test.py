@@ -1,6 +1,5 @@
 flask
 flask-cors
-imaplib
 email
 logging
 smtplib
