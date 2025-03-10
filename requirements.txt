@@ -1,0 +1,11 @@
+flask
+flask-cors
+imaplib
+email
+logging
+smtplib
+requests
+openai
+bs4
+langdetect
+gunicorn  # 🚀 Wichtig für den Server
