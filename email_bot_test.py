@@ -366,6 +366,9 @@ def send_reply():
         logging.error(f"❌ Fehler beim Senden der Antwort: {e}")
         return jsonify({"error": "❌ Fehler beim Senden der Antwort!"}), 500
 
+@app.route("/")
+def home():
+    return jsonify({"message": "✅ Flask API is running!"})
 
 if __name__ == "__main__":
     # Lade Umgebungsvariablen (insbesondere für den API-Key)
