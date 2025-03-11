@@ -13,10 +13,8 @@ from dotenv import load_dotenv
 import os
 import openai
 from flask_session import Session
-
-app.config["SESSION_TYPE"] = "filesystem"  # ✅ Speichert Session-Infos auf dem Server
-app.config["SESSION_PERMANENT"] = False
-Session(app)  # 🔥 Flask-Session aktivieren
+import secrets
+from flask import Flask, session
 
 
 # Lade Umgebungsvariablen
@@ -26,6 +24,10 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "supersecretkey")  # 🔒 Sicherheit für Sessions
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+
+# 🔑 Flask-Session Konfiguration
+app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", secrets.token_hex(32))  # Fallback falls .env fehlt
+app.config["SESSION_TYPE"] = "filesystem"  # ✅ Speichert Session-Infos auf dem Server
 
 # OpenAI API Key (GPT-4o)
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
