@@ -1,5 +1,6 @@
 flask
 flask-cors
+flask-session
 requests
 openai
 beautifulsoup4  # bs4 richtig benennen!

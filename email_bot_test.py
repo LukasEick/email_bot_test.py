@@ -12,6 +12,11 @@ from langdetect import detect
 from dotenv import load_dotenv
 import os
 import openai
+from flask_session import Session
+
+app.config["SESSION_TYPE"] = "filesystem"  # ✅ Speichert Session-Infos auf dem Server
+app.config["SESSION_PERMANENT"] = False
+Session(app)  # 🔥 Flask-Session aktivieren
 
 
 # Lade Umgebungsvariablen
