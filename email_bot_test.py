@@ -11,6 +11,8 @@ from email.header import decode_header
 from langdetect import detect
 from dotenv import load_dotenv
 import os
+import openai
+
 
 # Lade Umgebungsvariablen
 load_dotenv()
@@ -21,7 +23,8 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY", "supersecretkey")  # 🔒 Sicherh
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 # OpenAI API Key (GPT-4o)
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 
 # Standard E-Mail-Anbieter & Server
 EMAIL_PROVIDERS = {

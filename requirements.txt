@@ -6,3 +6,4 @@ beautifulsoup4  # bs4 richtig benennen!
 langdetect
 gunicorn  # 🚀 Wichtig für den Server auf Render
 python-dotenv
+
