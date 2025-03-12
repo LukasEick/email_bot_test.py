@@ -1,11 +1,10 @@
 flask
 flask-cors
-flask-session
 requests
 openai
+imaplib2
+email
 beautifulsoup4
 langdetect
-gunicorn
+cryptography
 python-dotenv
-email-validator  # 🔥 Validierung von E-Mail-Adressen
-imapclient  # 🔥 Bessere IMAP-Client-Bibliothek (Alternative zu imaplib)
