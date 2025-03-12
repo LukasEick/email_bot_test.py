@@ -11,7 +11,6 @@ from flask_session import Session
 import secrets
 from bs4 import BeautifulSoup
 from email.header import decode_header
-from langdetect import detect
 from dotenv import load_dotenv
 
 # 🔥 Lade Umgebungsvariablen
@@ -23,15 +22,14 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY", secrets.token_hex(32))  # 🔒 Si
 CORS(app, supports_credentials=True)
 
 # ✅ **Flask-Session Konfiguration**
-app.config["SESSION_TYPE"] = "filesystem"  # Speichert Session-Daten lokal
-app.config["SESSION_PERMANENT"] = False  # Sitzung nur für die aktuelle Sitzung gültig
-app.config["SESSION_USE_SIGNER"] = True  # Signiert Session-Daten für mehr Sicherheit
-app.config["SESSION_COOKIE_HTTPONLY"] = True  # Schützt vor JavaScript-Zugriff
-app.config["SESSION_COOKIE_SECURE"] = False  # Falls HTTPS benutzt wird: True setzen!
+app.config["SESSION_TYPE"] = "filesystem"
+app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_USE_SIGNER"] = True
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SECURE"] = os.getenv("FLASK_COOKIE_SECURE", "False").lower() == "true"
+app.config["SESSION_FILE_DIR"] = "./flask_sessions"  # Spezifischer Pfad zur Session-Speicherung
 
-# ✅ **Nur EINMAL Session initialisieren**
 Session(app)
-
 
 # OpenAI API Key (GPT-4)
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -46,17 +44,14 @@ EMAIL_PROVIDERS = {
     "web.de": {"imap": "imap.web.de", "smtp": "smtp.web.de"}
 }
 
-SMTP_PORT = 587  # Standard SMTP-Port für Authentifizierung
+SMTP_PORT = 587
 
 # Logging aktivieren
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-
 @app.route('/login', methods=['POST'])
 def login():
-    """Speichert Login-Daten in der Session & erlaubt Provider-Override."""
     data = request.get_json()
-
     if not data or "email" not in data or "password" not in data or "provider" not in data:
         return jsonify({"error": "❌ E-Mail, Passwort und Provider erforderlich!"}), 400
 
@@ -76,51 +71,16 @@ def login():
         imap_server = provider_info["imap"]
         smtp_server = provider_info["smtp"]
 
+    session.clear()
     session["email"] = email
     session["password"] = password
     session["imap_server"] = imap_server
     session["smtp_server"] = smtp_server
-
     logging.info(f"✅ Login erfolgreich für {email}")
     return jsonify({"message": "✅ Login erfolgreich!", "email": email}), 200
 
-
-def extract_email_body(msg):
-    """Extrahiert den lesbaren Inhalt einer E-Mail (Text bevorzugt, HTML als Fallback)."""
-    body = None
-    try:
-        if msg.is_multipart():
-            for part in msg.walk():
-                content_type = part.get_content_type()
-                content_disposition = str(part.get("Content-Disposition"))
-
-                if content_type == "text/plain" and "attachment" not in content_disposition:
-                    payload = part.get_payload(decode=True)
-                    if payload:
-                        body = payload.decode(errors="ignore").strip()
-                    break
-                elif content_type == "text/html" and not body:
-                    payload = part.get_payload(decode=True)
-                    if payload:
-                        soup = BeautifulSoup(payload, "html.parser")
-                        body = soup.get_text("\n").strip()
-        else:
-            payload = msg.get_payload(decode=True)
-            if payload:
-                body = payload.decode(errors="ignore").strip()
-
-        if not body:
-            return "⚠️ Kein lesbarer Inhalt gefunden."
-
-        return body
-    except Exception as e:
-        logging.error(f"❌ Fehler beim Extrahieren des E-Mail-Texts: {e}")
-        return "⚠️ Fehler beim Verarbeiten der Nachricht."
-
-
 @app.route('/get_email', methods=['GET'])
 def get_email():
-    """Holt die neueste ungelesene E-Mail für den aktuell eingeloggten Benutzer."""
     email_address = session.get("email")
     email_password = session.get("password")
     imap_server = session.get("imap_server")
@@ -132,82 +92,28 @@ def get_email():
         mail = imaplib.IMAP4_SSL(imap_server)
         mail.login(email_address, email_password)
         mail.select("inbox")
-
         status, messages = mail.search(None, "UNSEEN")
         mail_ids = messages[0].split()
-
         if not mail_ids:
             return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
-
         email_id = mail_ids[-1]
         status, data = mail.fetch(email_id, "(RFC822)")
-
         for response_part in data:
             if isinstance(response_part, tuple):
                 msg = email.message_from_bytes(response_part[1])
                 sender = msg["from"]
                 subject = msg["subject"]
-                body = extract_email_body(msg)
-
-                return jsonify({
-                    "email": sender,
-                    "subject": subject,
-                    "body": body
-                })
-
+                return jsonify({"email": sender, "subject": subject, "body": extract_email_body(msg)})
     except Exception as e:
         logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}")
         return jsonify({"error": "❌ Fehler beim Abrufen der E-Mail"}), 500
 
-
-@app.route('/send_reply', methods=['POST'])
-def send_reply():
-    """Sendet eine Antwort-E-Mail über den gespeicherten SMTP-Server."""
-    email_address = session.get("email")
-    email_password = session.get("password")
-    smtp_server = session.get("smtp_server")
-
-    if not email_address or not email_password or not smtp_server:
-        return jsonify({"error": "❌ Keine gültigen Login-Daten gefunden!"}), 401
-
-    data = request.get_json()
-
-    if not data or "email" not in data or "subject" not in data or "body" not in data:
-        return jsonify({"error": "❌ Fehlende Daten für die Antwort!"}), 400
-
-    recipient = data["email"]
-    subject = data["subject"]
-    body = data["body"]
-
-    try:
-        server = smtplib.SMTP(smtp_server, SMTP_PORT)
-        server.starttls()
-        server.login(email_address, email_password)
-
-        msg = MIMEText(body, "plain", "utf-8")
-        msg["From"] = email_address
-        msg["To"] = recipient
-        msg["Subject"] = subject
-
-        server.sendmail(email_address, recipient, msg.as_string())
-        server.quit()
-
-        logging.info(f"✅ Antwort gesendet an {recipient}")
-        return jsonify({"message": "✅ Antwort erfolgreich gesendet!"}), 200
-
-    except Exception as e:
-        logging.error(f"❌ Fehler beim Senden der Antwort: {e}")
-        return jsonify({"error": "❌ Fehler beim Senden der Antwort!"}), 500
-
-
 @app.route('/logout', methods=['POST'])
 def logout():
-    """Löscht die aktuelle Session, damit sich Benutzer sauber abmelden können."""
     session.clear()
     logging.info("✅ Benutzer wurde ausgeloggt")
     return jsonify({"message": "✅ Logout erfolgreich"}), 200
 
-
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))  # Port von Render verwenden
-    app.run(host="0.0.0.0", port=port, debug=True)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port, debug=False)
