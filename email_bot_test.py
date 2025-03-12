@@ -19,14 +19,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SUPABASE_URL = "https://qulqaxpvnaupdvuycxoe.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF1bHFheHB2bmF1cGR2dXljeG9lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDExNjExMDIsImV4cCI6MjA1NjczNzEwMn0.n3Z1yiac6hEfzxAJreuH1eTFMlkS6v-6D_i6OOpHBLw"
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY") or "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF1bHFheHB2bmF1cGR2dXljeG9lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDExNjExMDIsImV4cCI6MjA1NjczNzEwMn0.n3Z1yiac6hEfzxAJreuH1eTFMlkS6v-6D_i6OOpHBLw"
+
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY")
 PORT = os.environ.get("PORT", 8080)  # Falls PORT fehlt, nutze 5000
 
 # Prüfe, ob alle Variablen vorhanden sind
-missing_vars = [var for var in ["SUPABASE_URL", "SUPABASE_KEY", "OPENAI_API_KEY", "ENCRYPTION_KEY"] if not os.environ.get(var)]
+missing_vars = [var for var in ["SUPABASE_URL", "SUPABASE_KEY", "OPENAI_API_KEY", "ENCRYPTION_KEY"] if not globals().get(var)]
 if missing_vars:
     raise ValueError(f"❌ Fehlende Umgebungsvariablen: {', '.join(missing_vars)}. Bitte in Render setzen.")
 
@@ -38,6 +39,19 @@ CORS(app, resources={r"/*": {"origins": ["https://deine-seite.com"]}}, supports_
 
 # Logging aktivieren
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# Logge alle Umgebungsvariablen, um zu sehen, was wirklich geladen wird
+print("🔍 DEBUG: Alle Render-Umgebungsvariablen")
+for key, value in os.environ.items():
+    print(f"{key}: {value[:10]}******")  # Zeigt nur die ersten 10 Zeichen für Sicherheit
+
+# Prüfe, ob SUPABASE_KEY da ist
+if "SUPABASE_KEY" not in os.environ:
+    raise ValueError("❌ SUPABASE_KEY fehlt! Render hat es nicht geladen.")
+else:
+    print(f"✅ SUPABASE_KEY geladen: {SUPABASE_KEY[:5]}******")  # Zeigt die ersten 5 Zeichen
+
+    if __name__ == "__main__":
 
 # E-Mail-Anbieter (IMAP & SMTP)
 EMAIL_PROVIDERS = {
@@ -196,18 +210,6 @@ def api_get_email():
 @app.route("/")
 def home():
     return jsonify({"message": "✅ Flask API läuft!"})
-
-# Logge alle Umgebungsvariablen, um zu sehen, was wirklich geladen wird
-print("🔍 DEBUG: Alle Render-Umgebungsvariablen")
-for key, value in os.environ.items():
-    print(f"{key}: {value[:10]}******")  # Zeigt nur die ersten 10 Zeichen für Sicherheit
-
-# Prüfe, ob SUPABASE_KEY da ist
-if "SUPABASE_KEY" not in os.environ:
-    raise ValueError("❌ SUPABASE_KEY fehlt! Render hat es nicht geladen.")
-else:
-    print(f"✅ SUPABASE_KEY gefunden: {os.environ.get('SUPABASE_KEY')[:5]}******")  # Zeigt ersten 5 Zeichen
-
 
 
 if __name__ == "__main__":
