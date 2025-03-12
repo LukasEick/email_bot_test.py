@@ -18,14 +18,16 @@ from dotenv import load_dotenv
 # Lade Umgebungsvariablen
 load_dotenv()
 
-# API-Keys und Konfiguration
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")  # Fernet Schlüssel für Passwörter
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY")
+PORT = os.environ.get("PORT", 8080)  # Falls PORT fehlt, nutze 5000
 
-if not all([SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY, ENCRYPTION_KEY]):
-    raise ValueError("❌ Fehlende Umgebungsvariablen! Bitte .env konfigurieren.")
+# Prüfe, ob alle Variablen vorhanden sind
+missing_vars = [var for var in ["SUPABASE_URL", "SUPABASE_KEY", "OPENAI_API_KEY", "ENCRYPTION_KEY"] if not os.environ.get(var)]
+if missing_vars:
+    raise ValueError(f"❌ Fehlende Umgebungsvariablen: {', '.join(missing_vars)}. Bitte in Render setzen.")
 
 cipher = Fernet(ENCRYPTION_KEY)
 
