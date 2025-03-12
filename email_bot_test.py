@@ -14,6 +14,7 @@ from email.header import decode_header
 from langdetect import detect
 from dotenv import load_dotenv
 
+
 # 🔥 Lade Umgebungsvariablen
 load_dotenv()
 
@@ -21,6 +22,17 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", secrets.token_hex(32))  # 🔒 Sicherer Fallback
 CORS(app, supports_credentials=True)
+
+
+# Flask Session Setup
+app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", secrets.token_hex(32))
+app.config["SESSION_TYPE"] = "filesystem"  # Speichert Session-Daten lokal
+app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_USE_SIGNER"] = True
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SECURE"] = True  # Nur HTTPS, für lokale Tests auf False setzen!
+Session(app)
+
 
 # 🔑 Flask-Session Konfiguration
 app.config["SESSION_TYPE"] = "filesystem"  # ✅ Speichert Session-Infos serverseitig

@@ -3,8 +3,9 @@ flask-cors
 flask-session
 requests
 openai
-beautifulsoup4  # bs4 richtig benennen!
+beautifulsoup4
 langdetect
-gunicorn  # 🚀 Wichtig für den Server auf Render
+gunicorn
 python-dotenv
-
+email-validator  # 🔥 Validierung von E-Mail-Adressen
+imapclient  # 🔥 Bessere IMAP-Client-Bibliothek (Alternative zu imaplib)
