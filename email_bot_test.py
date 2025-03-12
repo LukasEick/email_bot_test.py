@@ -18,8 +18,9 @@ from dotenv import load_dotenv
 # Lade Umgebungsvariablen
 load_dotenv()
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+SUPABASE_URL = "https://qulqaxpvnaupdvuycxoe.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF1bHFheHB2bmF1cGR2dXljeG9lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDExNjExMDIsImV4cCI6MjA1NjczNzEwMn0.n3Z1yiac6hEfzxAJreuH1eTFMlkS6v-6D_i6OOpHBLw"
+
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY")
 PORT = os.environ.get("PORT", 8080)  # Falls PORT fehlt, nutze 5000
