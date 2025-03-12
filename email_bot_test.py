@@ -197,6 +197,18 @@ def api_get_email():
 def home():
     return jsonify({"message": "✅ Flask API läuft!"})
 
+# Logge alle Umgebungsvariablen, um zu sehen, was wirklich geladen wird
+print("🔍 DEBUG: Alle Render-Umgebungsvariablen")
+for key, value in os.environ.items():
+    print(f"{key}: {value[:10]}******")  # Zeigt nur die ersten 10 Zeichen für Sicherheit
+
+# Prüfe, ob SUPABASE_KEY da ist
+if "SUPABASE_KEY" not in os.environ:
+    raise ValueError("❌ SUPABASE_KEY fehlt! Render hat es nicht geladen.")
+else:
+    print(f"✅ SUPABASE_KEY gefunden: {os.environ.get('SUPABASE_KEY')[:5]}******")  # Zeigt ersten 5 Zeichen
+
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), debug=False)
