@@ -31,6 +31,7 @@ missing_vars = [var for var in ["SUPABASE_URL", "SUPABASE_KEY", "OPENAI_API_KEY"
 if missing_vars:
     raise ValueError(f"❌ Fehlende Umgebungsvariablen: {', '.join(missing_vars)}. Bitte in Render setzen.")
 
+
 cipher = Fernet(ENCRYPTION_KEY)
 
 # Flask Setup
