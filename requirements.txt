@@ -3,7 +3,6 @@ flask-cors
 requests
 openai
 imaplib2
-email
 beautifulsoup4
 langdetect
 cryptography
