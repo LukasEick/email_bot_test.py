@@ -135,17 +135,21 @@ def get_login_credentials():
         return None, None
 
 
+@app.route('/get_email', methods=['POST'])
+def api_get_email():
+    """Holt die aktuelle E-Mail, auch wenn keine Session existiert."""
+    data = request.get_json()
 
-### 📧 IMAP: E-Mails abrufen ###
-def fetch_latest_email():
-    """Holt die neueste ungelesene E-Mail sicher und effizient."""
-    email_address, email_password = get_login_credentials()
+    # Falls Login-Daten mitgegeben wurden, nutze diese
+    email_address = data.get("email") if data else session.get("email")
+    email_password = data.get("password") if data else session.get("password")
+
     if not email_address or not email_password:
-        return None, "❌ Keine gültigen Login-Daten gefunden!"
+        return jsonify({"error": "❌ Keine gültigen Login-Daten gefunden!"}), 401
 
-    provider = EMAIL_PROVIDERS.get(email_address.split("@")[-1])
+    provider = detect_email_provider(email_address)
     if not provider:
-        return None, "❌ Unbekannter E-Mail-Anbieter!"
+        return jsonify({"error": "❌ Unbekannter E-Mail-Anbieter!"}), 400
 
     try:
         mail = imaplib.IMAP4_SSL(provider["imap"])
@@ -153,20 +157,36 @@ def fetch_latest_email():
         mail.select("inbox")
 
         status, messages = mail.search(None, "UNSEEN")
-        mail_ids = messages[0].split()[-1:]  # Nur letzte ungelesene E-Mail holen
-        if not mail_ids:
-            return None, "📭 Keine neuen E-Mails gefunden!"
+        mail_ids = messages[0].split()
 
-        status, data = mail.fetch(mail_ids[-1], "(BODY.PEEK[])")
+        if not mail_ids:
+            return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
+
+        email_id = mail_ids[-1]
+        status, data = mail.fetch(email_id, "(RFC822)")
+
         for response_part in data:
             if isinstance(response_part, tuple):
-                return email.message_from_bytes(response_part[1]), None
+                msg = email.message_from_bytes(response_part[1])
+
+                sender = extract_email_address(msg["from"])
+                subject = clean_subject(msg["subject"])
+                body = extract_email_body(msg)
+
+                language = detect_language(body)
+                ai_reply = generate_ai_reply(body)
+
+                return jsonify({
+                    "email": sender,
+                    "subject": subject,
+                    "body": body,
+                    "reply": ai_reply,
+                    "language": language
+                })
 
     except Exception as e:
         logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}")
-        return None, "❌ Fehler beim Abrufen der E-Mail!"
-
-    return None, "❌ Unbekannter Fehler!"
+        return jsonify({"error": "❌ Fehler beim Abrufen der E-Mail"}), 500
 
 
 ### 🤖 OpenAI GPT-4o: KI-Antwort generieren ###
