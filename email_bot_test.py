@@ -52,7 +52,6 @@ if "SUPABASE_KEY" not in os.environ:
 else:
     print(f"✅ SUPABASE_KEY geladen: {SUPABASE_KEY[:5]}******")  # Zeigt die ersten 5 Zeichen
 
-    if __name__ == "__main__":
 
 # E-Mail-Anbieter (IMAP & SMTP)
 EMAIL_PROVIDERS = {
