@@ -238,9 +238,6 @@ def login():
         return jsonify({"error": f"❌ Interner Serverfehler: {str(e)}"}), 500
 
 
-
-
-
 ### 🌍 Flask API ###
 @app.route('/get_email', methods=['GET'])
 def api_get_email():
@@ -256,6 +253,16 @@ def api_get_email():
 @app.route("/")
 def home():
     return jsonify({"message": "✅ Flask API läuft!"})
+
+@app.route('/session_test', methods=['GET'])
+def session_test():
+    try:
+        session["test"] = "Hallo"
+        return jsonify({"message": "✅ Session funktioniert!"}), 200
+    except Exception as e:
+        print(f"❌ Fehler mit Flask-Session: {str(e)}")
+        return jsonify({"error": f"❌ Fehler mit Session: {str(e)}"}), 500
+
 
 
 if __name__ == "__main__":
