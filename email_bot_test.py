@@ -217,21 +217,26 @@ def login():
 
     try:
         data = request.get_json()
+        print(f"📡 Anfrage erhalten: {data}")  # 🔍 Debugging
+
         if not data or "email" not in data or "password" not in data:
             return jsonify({"error": "E-Mail und Passwort erforderlich!"}), 400
 
         email = data["email"]
         password = data["password"]
 
-        session["email"] = email  # 🔥 Speichert Login-Daten in der Session
-        session["password"] = password  # 🔥 Passwort wird auch gespeichert
+        print(f"🔍 Speichere Login in Session: {email}")
 
-        print(f"✅ Login erfolgreich: {email}")
+        session["email"] = email  # 🔥 Falls es hier crasht, wird es geloggt!
+        session["password"] = password
+
+        print(f"✅ Login erfolgreich für {email}")
         return jsonify({"message": "✅ Login erfolgreich!", "email": email}), 200
 
     except Exception as e:
-        print(f"❌ Fehler beim Login: {e}")
-        return jsonify({"error": "❌ Interner Serverfehler beim Login"}), 500
+        print(f"❌ Fehler beim Login: {str(e)}")  # 🔥 Logge die genaue Exception
+        return jsonify({"error": f"❌ Interner Serverfehler: {str(e)}"}), 500
+
 
 
 
