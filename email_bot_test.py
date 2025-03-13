@@ -111,16 +111,22 @@ def save_login_credentials(email, password):
 
 
 def get_login_credentials():
-    """Holt Login-Daten aus der Session statt aus Supabase."""
-    email = session.get("email")
-    password = session.get("password")
+    """Holt Login-Daten aus der Session & gibt Fehler aus."""
+    try:
+        email = session.get("email")
+        password = session.get("password")
 
-    if email and password:
-        print(f"✅ Gefundene Session-Daten: {email}, Passwort: {password[:5]}******")
-        return email, password
+        if email and password:
+            print(f"✅ Gefundene Session-Daten: {email}, Passwort: {password[:5]}******")
+            return email, password
 
-    print("🚨 Keine Session-Login-Daten gefunden!")
-    return None, None
+        print("🚨 Keine Session-Login-Daten gefunden!")
+        return None, None
+
+    except Exception as e:
+        print(f"❌ Fehler beim Abrufen der Session-Daten: {e}")
+        return None, None
+
 
 
 ### 📧 IMAP: E-Mails abrufen ###
@@ -209,18 +215,24 @@ def login():
     if request.method == "OPTIONS":
         return jsonify({"message": "CORS Preflight OK"}), 200
 
-    data = request.get_json()
-    if not data or "email" not in data or "password" not in data:
-        return jsonify({"error": "E-Mail und Passwort erforderlich!"}), 400
+    try:
+        data = request.get_json()
+        if not data or "email" not in data or "password" not in data:
+            return jsonify({"error": "E-Mail und Passwort erforderlich!"}), 400
 
-    email = data["email"]
-    password = data["password"]
+        email = data["email"]
+        password = data["password"]
 
-    # 🔥 Speichere Login-Daten in der Flask-Session
-    session["email"] = email
-    session["password"] = password
+        session["email"] = email  # 🔥 Speichert Login-Daten in der Session
+        session["password"] = password  # 🔥 Passwort wird auch gespeichert
 
-    return jsonify({"message": "✅ Login erfolgreich!", "email": email}), 200
+        print(f"✅ Login erfolgreich: {email}")
+        return jsonify({"message": "✅ Login erfolgreich!", "email": email}), 200
+
+    except Exception as e:
+        print(f"❌ Fehler beim Login: {e}")
+        return jsonify({"error": "❌ Interner Serverfehler beim Login"}), 500
+
 
 
 
