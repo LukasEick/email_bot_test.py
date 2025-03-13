@@ -19,6 +19,8 @@ from flask_session import Session
 # 🔥 Lade Umgebungsvariablen
 load_dotenv()
 
+PORT = os.getenv("PORT", "8080")  # Falls PORT nicht existiert, setze Standardwert 8080
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
