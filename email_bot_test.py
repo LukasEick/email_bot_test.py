@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from langdetect import detect
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
+from flask import session  # 🔥 Importiere die Session
 
 
 # Lade Umgebungsvariablen
@@ -110,20 +111,15 @@ def save_login_credentials(email, password):
 
 
 def get_login_credentials():
-    """Holt die verschlüsselten Login-Daten aus Supabase."""
-    try:
-        url = f"{SUPABASE_URL}/rest/v1/emails?select=email,password&order=id.desc&limit=1"
-        headers = {
-            "apikey": SUPABASE_KEY,
-            "Authorization": f"Bearer {SUPABASE_KEY}",
-        }
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200 and response.json():
-            data = response.json()[0]
-            return data["email"], decrypt_password(data["password"])
-    except Exception as e:
-        logging.error(f"❌ Fehler beim Abrufen der Login-Daten: {e}")
+    """Holt Login-Daten aus der Session statt aus Supabase."""
+    email = session.get("email")
+    password = session.get("password")
 
+    if email and password:
+        print(f"✅ Gefundene Session-Daten: {email}, Passwort: {password[:5]}******")
+        return email, password
+
+    print("🚨 Keine Session-Login-Daten gefunden!")
     return None, None
 
 
@@ -207,10 +203,11 @@ def send_email(recipient, subject, body):
         logging.error(f"❌ SMTP Fehler: {e}")
         return "❌ Fehler beim Senden der E-Mail!"
 
+
 @app.route('/login', methods=['POST', 'OPTIONS'])
 def login():
     if request.method == "OPTIONS":
-        return jsonify({"message": "CORS Preflight OK"}), 200  # ✅ Antwort für Preflight-Requests
+        return jsonify({"message": "CORS Preflight OK"}), 200
 
     data = request.get_json()
     if not data or "email" not in data or "password" not in data:
@@ -219,8 +216,12 @@ def login():
     email = data["email"]
     password = data["password"]
 
-    # Hier solltest du speichern oder prüfen, ob Login korrekt ist
+    # 🔥 Speichere Login-Daten in der Flask-Session
+    session["email"] = email
+    session["password"] = password
+
     return jsonify({"message": "✅ Login erfolgreich!", "email": email}), 200
+
 
 
 ### 🌍 Flask API ###
