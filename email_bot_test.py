@@ -15,7 +15,8 @@ from langdetect import detect
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 from flask import session  # 🔥 Importiere die Session
-
+from flask import Flask, session
+from flask_session import Session
 
 # Lade Umgebungsvariablen
 load_dotenv()
@@ -36,8 +37,14 @@ if missing_vars:
 
 cipher = Fernet(ENCRYPTION_KEY)
 
-
 app = Flask(__name__)
+
+# 🔥 Session-Konfiguration
+app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_TYPE"] = "filesystem"  # 🔥 Speichert Sessions auf dem Server
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "fallback_sicherer_schlüssel")
+Session(app)  # 🔥 Flask-Session aktivieren
+
 
 # 🔥 Erlaube Anfragen von Netlify-Frontend (CORS für alle Routen aktivieren)
 CORS(app, resources={r"/*": {"origins": "https://emailcrawlerlukas.netlify.app"}}, supports_credentials=True)
