@@ -15,6 +15,7 @@ from langdetect import detect
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 
+
 # Lade Umgebungsvariablen
 load_dotenv()
 
@@ -34,9 +35,11 @@ if missing_vars:
 
 cipher = Fernet(ENCRYPTION_KEY)
 
-# Flask Setup
+
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+
+# 🔥 Erlaube Anfragen von Netlify-Frontend (CORS für alle Routen aktivieren)
+CORS(app, resources={r"/*": {"origins": "https://emailcrawlerlukas.netlify.app"}}, supports_credentials=True)
 
 @app.after_request
 def add_cors_headers(response):
@@ -45,6 +48,7 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     response.headers["Access-Control-Allow-Credentials"] = "true"
     return response
+
 
 
 # Logging aktivieren
@@ -202,6 +206,21 @@ def send_email(recipient, subject, body):
     except Exception as e:
         logging.error(f"❌ SMTP Fehler: {e}")
         return "❌ Fehler beim Senden der E-Mail!"
+
+@app.route('/login', methods=['POST', 'OPTIONS'])
+def login():
+    if request.method == "OPTIONS":
+        return jsonify({"message": "CORS Preflight OK"}), 200  # ✅ Antwort für Preflight-Requests
+
+    data = request.get_json()
+    if not data or "email" not in data or "password" not in data:
+        return jsonify({"error": "E-Mail und Passwort erforderlich!"}), 400
+
+    email = data["email"]
+    password = data["password"]
+
+    # Hier solltest du speichern oder prüfen, ob Login korrekt ist
+    return jsonify({"message": "✅ Login erfolgreich!", "email": email}), 200
 
 
 ### 🌍 Flask API ###
