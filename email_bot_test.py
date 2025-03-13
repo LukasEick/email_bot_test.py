@@ -265,18 +265,6 @@ def login():
         return jsonify({"error": f"❌ Interner Serverfehler: {str(e)}"}), 500
 
 
-### 🌍 Flask API ###
-@app.route('/get_email', methods=['GET'])
-def api_get_email():
-    msg, error = fetch_latest_email()
-    if error:
-        return jsonify({"error": error})
-
-    body = msg.get_payload(decode=True).decode(errors="ignore") if msg else "⚠️ Kein Inhalt gefunden."
-    ai_reply = generate_ai_reply(body)
-    return jsonify({"body": body, "reply": ai_reply})
-
-
 @app.route("/")
 def home():
     return jsonify({"message": "✅ Flask API läuft!"})
