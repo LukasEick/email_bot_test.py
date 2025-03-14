@@ -32,6 +32,7 @@ cipher = Fernet(ENCRYPTION_KEY)
 # 🔥 Flask Setup
 app = Flask(__name__)
 app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_USE_SIGNER"] = True  # 🔥 Sichert die Session gegen Manipulation
 app.config["SESSION_TYPE"] = "filesystem"
 app.config["SESSION_COOKIE_SECURE"] = True
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -140,37 +141,32 @@ def login():
 
         email = data.get("email")
         password = data.get("password")
-        provider = data.get("provider")  # ✅ Provider aus JSON holen
+        provider = data.get("provider")  # ✅ Provider auslesen
 
         if not email or not password or not provider:
             return jsonify({"error": "❌ E-Mail, Passwort und Provider erforderlich!"}), 400
 
-        # ✅ Check: Ist der Provider in der bekannten Liste?
-        valid_providers = {
-            "gmail.com": {"imap": "imap.gmail.com", "smtp": "smtp.gmail.com"},
-            "gmx.de": {"imap": "imap.gmx.net", "smtp": "mail.gmx.net"},
-            "yahoo.com": {"imap": "imap.mail.yahoo.com", "smtp": "smtp.mail.yahoo.com"},
-            "outlook.com": {"imap": "outlook.office365.com", "smtp": "smtp.office365.com"},
-            "hotmail.com": {"imap": "imap-mail.outlook.com", "smtp": "smtp-mail.outlook.com"},
-            "web.de": {"imap": "imap.web.de", "smtp": "smtp.web.de"},
-        }
-
-        if provider not in valid_providers:
-            logging.error(f"❌ Ungültiger Provider: {provider}")
-            return jsonify({"error": "❌ Ungültiger Provider!"}), 400
-
-        # ✅ Speichere Login in Session
+        # 🔥 Session speichern
+        session.clear()  # Alte Session löschen (falls vorhanden)
         session["email"] = email
         session["password"] = password
-        session["provider"] = provider  # ✅ Provider speichern
+        session["provider"] = provider
+        session.modified = True  # Erzwinge das Speichern der Session
 
-        logging.info(f"🔐 Session gespeichert für {email} mit Provider {provider}")
+        # 🔍 **Debugging: Session direkt nach dem Speichern abrufen**
+        debug_data = {
+            "email": session.get("email"),
+            "password": session.get("password"),
+            "provider": session.get("provider"),
+        }
+        logging.info(f"🔐 Session-Daten nach Login: {debug_data}")
 
-        return jsonify({"message": "✅ Login erfolgreich!", "email": email, "provider": provider}), 200
+        return jsonify({"message": "✅ Login erfolgreich!", "session_data": debug_data}), 200
 
     except Exception as e:
         logging.error(f"❌ Fehler beim Login: {str(e)}")
         return jsonify({"error": f"❌ Interner Serverfehler: {str(e)}"}), 500
+
 
 
 @app.route('/get_email', methods=['POST'])
