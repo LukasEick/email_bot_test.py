@@ -121,6 +121,19 @@ def get_login_credentials(email):
     return None
 
 
+def detect_email_provider(email_address):
+    """Erkennt den E-Mail-Anbieter anhand der Domain."""
+    if not email_address:
+        logging.error("❌ Keine E-Mail-Adresse übergeben!")
+        return None
+
+    domain = email_address.split("@")[-1].lower()
+
+    logging.info(f"🔍 Überprüfe E-Mail-Domain: {domain}")
+
+    return EMAIL_PROVIDERS.get(domain, None)
+
+
 # 📧 IMAP: E-Mail abrufen
 def fetch_latest_email():
     email_address, email_password = get_login_credentials()
@@ -291,6 +304,18 @@ def session_test():
     logging.info(f"✅ Session vorhanden: {email}")
     return jsonify({"message": "✅ Session gespeichert!", "email": email, "password": "*****"}), 200
 
+
+@app.route("/test_email_provider", methods=["POST"])
+def test_email_provider():
+    data = request.get_json()
+    email_address = data.get("email", "")
+
+    provider = detect_email_provider(email_address)
+
+    if provider:
+        return jsonify({"message": "✅ Provider erkannt!", "provider": provider}), 200
+    else:
+        return jsonify({"error": "❌ Unbekannter E-Mail-Anbieter!"}), 400
 
 
 if __name__ == "__main__":
