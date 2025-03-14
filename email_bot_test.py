@@ -36,11 +36,15 @@ cipher = Fernet(ENCRYPTION_KEY)
 
 # 🔥 Flask Setup
 app = Flask(__name__)
-app.config.update(
-    SESSION_PERMANENT=False,
-    SESSION_TYPE="filesystem",
-    SECRET_KEY=SECRET_KEY,
-)
+app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_TYPE"] = "filesystem"  # Alternativ "redis" falls du Redis nutzt
+app.config["SESSION_COOKIE_SECURE"] = True  # 🔥 Wichtig für HTTPS
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "None"  # 🔥 Wichtig für CORS!
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "fallback_sicherer_schlüssel")
+
+Session(app)  # 🔥 Initialisiere Flask-Session
+
 
 Session(app)
 CORS(app, supports_credentials=True)
