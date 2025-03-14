@@ -1,17 +1,13 @@
-import imaplib
+iimport imaplib
 import email
 import logging
 import smtplib
 import os
 import requests
 import openai
-import re
 from flask import Flask, jsonify, request, session
 from flask_cors import CORS
 from email.mime.text import MIMEText
-from email.header import decode_header
-from bs4 import BeautifulSoup
-from langdetect import detect
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 from flask_session import Session
@@ -19,8 +15,7 @@ from flask_session import Session
 # 🔥 Lade Umgebungsvariablen
 load_dotenv()
 
-PORT = os.getenv("PORT", "8080")  # Falls PORT nicht existiert, setze Standardwert 8080
-
+PORT = os.getenv("PORT", "8080")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -37,14 +32,11 @@ cipher = Fernet(ENCRYPTION_KEY)
 # 🔥 Flask Setup
 app = Flask(__name__)
 app.config["SESSION_PERMANENT"] = False
-app.config["SESSION_TYPE"] = "filesystem"  # Alternativ "redis" falls du Redis nutzt
-app.config["SESSION_COOKIE_SECURE"] = True  # 🔥 Wichtig für HTTPS
+app.config["SESSION_TYPE"] = "filesystem"
+app.config["SESSION_COOKIE_SECURE"] = True
 app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "None"  # 🔥 Wichtig für CORS!
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "fallback_sicherer_schlüssel")
-
-Session(app)  # 🔥 Initialisiere Flask-Session
-
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
+app.config["SECRET_KEY"] = SECRET_KEY
 
 Session(app)
 CORS(app, supports_credentials=True)
@@ -52,25 +44,26 @@ CORS(app, supports_credentials=True)
 # 🔥 Logging Setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 🔥 E-Mail Anbieter
+# 🔥 Verfügbare E-Mail Anbieter (Für Dropdown-Menü!)
 EMAIL_PROVIDERS = {
-    "gmail.com": {"imap": "imap.gmail.com", "smtp": "smtp.gmail.com"},
-    "gmx.de": {"imap": "imap.gmx.net", "smtp": "mail.gmx.net"},
-    "yahoo.com": {"imap": "imap.mail.yahoo.com", "smtp": "smtp.mail.yahoo.com"},
-    "outlook.com": {"imap": "outlook.office365.com", "smtp": "smtp.office365.com"},
+    "Gmail": {"imap": "imap.gmail.com", "smtp": "smtp.gmail.com"},
+    "GMX": {"imap": "imap.gmx.net", "smtp": "mail.gmx.net"},
+    "Yahoo": {"imap": "imap.mail.yahoo.com", "smtp": "smtp.mail.yahoo.com"},
+    "Outlook": {"imap": "outlook.office365.com", "smtp": "smtp.office365.com"},
+    "Web.de": {"imap": "imap.web.de", "smtp": "smtp.web.de"},
 }
 
 SMTP_PORT = 587
 
-# 🔒 Verschlüsselung
+# 🔒 Passwort-Verschlüsselung
 def encrypt_password(password):
     return cipher.encrypt(password.encode()).decode()
 
 def decrypt_password(encrypted_password):
     return cipher.decrypt(encrypted_password.encode()).decode()
 
-def save_login_credentials(email, password):
-    """Speichert Login-Daten sicher in Supabase und gibt Fehler aus."""
+# 🔑 Speichert Login-Daten in Supabase
+def save_login_credentials(email, password, provider):
     try:
         url = f"{SUPABASE_URL}/rest/v1/emails"
         headers = {
@@ -78,33 +71,27 @@ def save_login_credentials(email, password):
             "Authorization": f"Bearer {SUPABASE_KEY}",
             "Content-Type": "application/json"
         }
-
         encrypted_password = encrypt_password(password)
 
-        # 🔥 Debugging: Vor dem Speichern in Supabase loggen
-        logging.info(f"📡 Speichere Login in Supabase: {email}")
+        logging.info(f"📡 Speichere Login in Supabase für: {email} ({provider})")
 
-        response = requests.post(url, json={"email": email, "password": encrypted_password}, headers=headers)
+        response = requests.post(url, json={"email": email, "password": encrypted_password, "provider": provider}, headers=headers)
         response_json = response.json()
 
         if response.status_code == 201:
             logging.info(f"✅ Login erfolgreich gespeichert: {email}")
             return True
-
         else:
             logging.error(f"❌ Fehler beim Speichern in Supabase: {response.status_code} - {response_json}")
             return False
-
     except Exception as e:
-        logging.error(f"❌ Fehler beim Speichern der Login-Daten in Supabase: {e}")
+        logging.error(f"❌ Fehler beim Speichern in Supabase: {e}")
         return False
 
-
-
+# 🔑 Holt gespeicherte Login-Daten aus Supabase
 def get_login_credentials(email):
-    """Holt Login-Daten aus Supabase."""
     try:
-        url = f"{SUPABASE_URL}/rest/v1/emails?select=password&email=eq.{email}"
+        url = f"{SUPABASE_URL}/rest/v1/emails?select=password,provider&email=eq.{email}"
         headers = {
             "apikey": SUPABASE_KEY,
             "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -112,40 +99,19 @@ def get_login_credentials(email):
         response = requests.get(url, headers=headers)
 
         if response.status_code == 200 and response.json():
-            encrypted_password = response.json()[0]["password"]
-            return decrypt_password(encrypted_password)
-
+            data = response.json()[0]
+            return decrypt_password(data["password"]), data["provider"]
     except Exception as e:
-        logging.error(f"❌ Fehler beim Abrufen der Login-Daten aus Supabase: {e}")
+        logging.error(f"❌ Fehler beim Abrufen aus Supabase: {e}")
+    return None, None
 
-    return None
-
-
-def detect_email_provider(email_address):
-    """Erkennt den E-Mail-Anbieter anhand der Domain."""
-    if not email_address:
-        logging.error("❌ Keine E-Mail-Adresse übergeben!")
-        return None
-
-    domain = email_address.split("@")[-1].lower()
-
-    logging.info(f"🔍 Überprüfe E-Mail-Domain: {domain}")
-
-    return EMAIL_PROVIDERS.get(domain, None)
-
-
-# 📧 IMAP: E-Mail abrufen
-def fetch_latest_email():
-    email_address, email_password = get_login_credentials()
-    if not email_address or not email_password:
-        return None, "❌ Keine gültigen Login-Daten gefunden!"
-
-    provider = EMAIL_PROVIDERS.get(email_address.split("@")[-1])
-    if not provider:
+# 📧 Holt letzte E-Mail (Manuell gewählter Provider!)
+def fetch_latest_email(email_address, email_password, provider):
+    if provider not in EMAIL_PROVIDERS:
         return None, "❌ Unbekannter E-Mail-Anbieter!"
 
     try:
-        mail = imaplib.IMAP4_SSL(provider["imap"])
+        mail = imaplib.IMAP4_SSL(EMAIL_PROVIDERS[provider]["imap"])
         mail.login(email_address, email_password)
         mail.select("inbox")
 
@@ -161,162 +127,65 @@ def fetch_latest_email():
         for response_part in data:
             if isinstance(response_part, tuple):
                 return email.message_from_bytes(response_part[1]), None
-
     except Exception as e:
         logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}")
         return None, "❌ Fehler beim Abrufen der E-Mail!"
 
-# 🤖 KI-Antwort generieren
-def generate_ai_reply(email_body):
-    language = detect(email_body)
-    prompt = f"Antwort in {'Deutsch' if language == 'de' else 'Englisch'}:\n{email_body}"
+# 🔥 API-Endpoints
 
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
-        )
-        return response["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        logging.error(f"❌ OpenAI API Fehler: {e}")
-        return "⚠️ AI-Antwort konnte nicht generiert werden."
-
-# 📤 E-Mail senden
-def send_email(recipient, subject, body):
-    email_address, email_password = get_login_credentials()
-    provider = EMAIL_PROVIDERS.get(email_address.split("@")[-1])
-
-    if not provider:
-        return "❌ Unbekannter E-Mail-Anbieter!"
-
-    try:
-        with smtplib.SMTP(provider["smtp"], SMTP_PORT) as server:
-            server.starttls()
-            server.login(email_address, email_password)
-
-            msg = MIMEText(body, "plain", "utf-8")
-            msg["From"] = email_address
-            msg["To"] = recipient
-            msg["Subject"] = subject
-
-            server.sendmail(email_address, recipient, msg.as_string())
-
-        return "✅ Antwort erfolgreich gesendet!"
-    except Exception as e:
-        logging.error(f"❌ SMTP Fehler: {e}")
-        return "❌ Fehler beim Senden der E-Mail!"
-
-@app.route('/login', methods=['POST', 'OPTIONS'])
+@app.route('/login', methods=['POST'])
 def login():
-    if request.method == "OPTIONS":
-        return jsonify({"message": "CORS Preflight OK"}), 200
-
     try:
         data = request.get_json()
-        if not data or "email" not in data or "password" not in data:
-            return jsonify({"error": "❌ E-Mail und Passwort erforderlich!"}), 400
+        if not data or "email" not in data or "password" not in data or "provider" not in data:
+            return jsonify({"error": "❌ E-Mail, Passwort und Provider erforderlich!"}), 400
 
         email = data["email"]
         password = data["password"]
+        provider = data["provider"]
 
-        # Speichere die Login-Daten in der Session
+        if provider not in EMAIL_PROVIDERS:
+            return jsonify({"error": "❌ Ungültiger Provider!"}), 400
+
         session["email"] = email
         session["password"] = password
-        logging.info(f"🔐 Session gespeichert für: {email}")
+        session["provider"] = provider
+        logging.info(f"🔐 Session gespeichert für: {email} ({provider})")
 
-        # Backup in Supabase
-        save_login_credentials(email, password)
+        save_login_credentials(email, password, provider)
 
-        return jsonify({"message": "✅ Login erfolgreich!", "email": email}), 200
-
+        return jsonify({"message": "✅ Login erfolgreich!", "email": email, "provider": provider}), 200
     except Exception as e:
         logging.error(f"❌ Fehler beim Login: {e}")
-        return jsonify({"error": f"❌ Interner Serverfehler: {e}"}), 500
-
+        return jsonify({"error": f"❌ Serverfehler: {e}"}), 500
 
 @app.route('/get_email', methods=['POST'])
 def api_get_email():
-    """Holt die letzte E-Mail basierend auf gespeicherten Supabase-Daten."""
     data = request.get_json()
     email_address = data.get("email")
+    provider = data.get("provider")
 
-    if not email_address:
-        return jsonify({"error": "❌ E-Mail erforderlich!"}), 400
+    if not email_address or not provider:
+        return jsonify({"error": "❌ E-Mail und Provider erforderlich!"}), 400
 
-    email_password = get_login_credentials(email_address)
+    email_password, saved_provider = get_login_credentials(email_address)
 
-    if not email_password:
-        return jsonify({"error": "❌ Keine gespeicherten Login-Daten gefunden!"}), 401
+    if not email_password or provider != saved_provider:
+        return jsonify({"error": "❌ Falsche oder fehlende Login-Daten!"}), 401
 
-    provider = EMAIL_PROVIDERS.get(email_address.split("@")[-1])
-    if not provider:
-        return jsonify({"error": "❌ Unbekannter E-Mail-Anbieter!"}), 400
+    msg, error = fetch_latest_email(email_address, email_password, provider)
+    if error:
+        return jsonify({"error": error})
 
-    try:
-        mail = imaplib.IMAP4_SSL(provider["imap"])
-        mail.login(email_address, email_password)
-        mail.select("inbox")
-
-        status, messages = mail.search(None, "UNSEEN")
-        mail_ids = messages[0].split()
-
-        if not mail_ids:
-            return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
-
-        email_id = mail_ids[-1]
-        status, data = mail.fetch(email_id, "(RFC822)")
-
-        for response_part in data:
-            if isinstance(response_part, tuple):
-                msg = email.message_from_bytes(response_part[1])
-
-                sender = msg["from"]
-                subject = msg["subject"]
-                body = msg.get_payload(decode=True).decode(errors="ignore")
-
-                return jsonify({
-                    "email": sender,
-                    "subject": subject,
-                    "body": body
-                })
-
-    except Exception as e:
-        logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}")
-        return jsonify({"error": "❌ Fehler beim Abrufen der E-Mail"}), 500
-
-
+    return jsonify({
+        "email": msg["from"],
+        "subject": msg["subject"],
+        "body": msg.get_payload(decode=True).decode(errors="ignore"),
+    })
 
 @app.route("/")
 def home():
     return jsonify({"message": "✅ Flask API läuft!"})
-
-@app.route('/session_test', methods=['GET'])
-def session_test():
-    """Prüft, ob die Session richtig gespeichert wird."""
-    email = session.get("email")
-    password = session.get("password")
-
-    if not email or not password:
-        logging.warning("⚠️ Keine gespeicherten Login-Daten gefunden!")
-        return jsonify({"error": "❌ Keine gespeicherten Login-Daten gefunden!"}), 401
-
-    logging.info(f"✅ Session vorhanden: {email}")
-    return jsonify({"message": "✅ Session gespeichert!", "email": email, "password": "*****"}), 200
-
-
-@app.route("/test_email_provider", methods=["POST"])
-def test_email_provider():
-    data = request.get_json()
-    email_address = data.get("email", "")
-
-    provider = detect_email_provider(email_address)
-
-    if provider:
-        return jsonify({"message": "✅ Provider erkannt!", "provider": provider}), 200
-    else:
-        return jsonify({"error": "❌ Unbekannter E-Mail-Anbieter!"}), 400
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(PORT), debug=False)
