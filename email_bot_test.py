@@ -236,5 +236,15 @@ def api_get_email():
 def home():
     return jsonify({"message": "✅ Flask API läuft!"})
 
+@app.route('/debug_session', methods=['GET'])
+def debug_session():
+    """Gibt alle gespeicherten Session-Daten zurück (zum Debuggen)."""
+    return jsonify({
+        "email": session.get("email"),
+        "password": session.get("password"),
+        "provider": session.get("provider")
+    })
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(PORT), debug=False)
