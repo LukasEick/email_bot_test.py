@@ -94,11 +94,25 @@ def save_login_credentials(email, password):
         return False
 
 
-def get_login_credentials():
-    """Holt Login-Daten aus der Session."""
-    email = session.get("email")
-    password = session.get("password")
-    return (email, password) if email and password else (None, None)
+def get_login_credentials(email):
+    """Holt Login-Daten aus Supabase."""
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/emails?select=password&email=eq.{email}"
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+        }
+        response = requests.get(url, headers=headers)
+
+        if response.status_code == 200 and response.json():
+            encrypted_password = response.json()[0]["password"]
+            return decrypt_password(encrypted_password)
+
+    except Exception as e:
+        logging.error(f"❌ Fehler beim Abrufen der Login-Daten aus Supabase: {e}")
+
+    return None
+
 
 # 📧 IMAP: E-Mail abrufen
 def fetch_latest_email():
@@ -201,36 +215,31 @@ def login():
         return jsonify({"error": f"❌ Interner Serverfehler: {e}"}), 500
 
 
-@app.route('/get_email', methods=['GET'])
+@app.route('/get_email', methods=['POST'])
 def api_get_email():
-    """Holt die aktuelle E-Mail und überprüft die gespeicherte Session."""
-    logging.info("📡 API-Aufruf: /get_email")
+    """Holt die letzte E-Mail basierend auf gespeicherten Supabase-Daten."""
+    data = request.get_json()
+    email_address = data.get("email")
 
-    email_address = session.get("email")
-    email_password = session.get("password")
+    if not email_address:
+        return jsonify({"error": "❌ E-Mail erforderlich!"}), 400
 
-    if not email_address or not email_password:
-        logging.warning("⚠️ Keine gespeicherten Login-Daten gefunden!")
+    email_password = get_login_credentials(email_address)
+
+    if not email_password:
         return jsonify({"error": "❌ Keine gespeicherten Login-Daten gefunden!"}), 401
-
-    logging.info(f"🔑 Login mit {email_address}")
 
     provider = EMAIL_PROVIDERS.get(email_address.split("@")[-1])
     if not provider:
-        logging.error(f"❌ Unbekannter E-Mail-Anbieter für: {email_address}")
         return jsonify({"error": "❌ Unbekannter E-Mail-Anbieter!"}), 400
 
     try:
-        logging.info(f"📡 Verbinde mit {provider['imap']} per IMAP...")
-
         mail = imaplib.IMAP4_SSL(provider["imap"])
         mail.login(email_address, email_password)
         mail.select("inbox")
 
         status, messages = mail.search(None, "UNSEEN")
         mail_ids = messages[0].split()
-
-        logging.info(f"📩 {len(mail_ids)} ungelesene E-Mails gefunden")
 
         if not mail_ids:
             return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
@@ -246,8 +255,6 @@ def api_get_email():
                 subject = msg["subject"]
                 body = msg.get_payload(decode=True).decode(errors="ignore")
 
-                logging.info(f"📨 E-Mail erhalten von {sender}: {subject}")
-
                 return jsonify({
                     "email": sender,
                     "subject": subject,
@@ -255,8 +262,9 @@ def api_get_email():
                 })
 
     except Exception as e:
-        logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}", exc_info=True)
+        logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}")
         return jsonify({"error": "❌ Fehler beim Abrufen der E-Mail"}), 500
+
 
 
 @app.route("/")
