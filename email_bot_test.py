@@ -5,7 +5,7 @@ import os
 
 app = Flask(__name__)
 
-# 🔥 **Korrigierte Session-Konfiguration für Render**
+# ✅ **Korrigierte Session-Konfiguration**
 app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_TYPE"] = "filesystem"  # Falls Redis verfügbar ist, kann man hier "redis" nutzen
 app.config["SESSION_FILE_DIR"] = "/tmp/flask_session"  # 🔥 Wichtig für Render
@@ -23,7 +23,7 @@ CORS(app, resources={r"/*": {"origins": "https://emailcrawlerlukas.netlify.app"}
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "https://emailcrawlerlukas.netlify.app"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
     response.headers["Access-Control-Allow-Credentials"] = "true"
     return response
 
