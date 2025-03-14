@@ -70,7 +70,7 @@ def decrypt_password(encrypted_password):
     return cipher.decrypt(encrypted_password.encode()).decode()
 
 def save_login_credentials(email, password):
-    """Speichert Login-Daten sicher in Supabase."""
+    """Speichert Login-Daten sicher in Supabase und gibt Fehler aus."""
     try:
         url = f"{SUPABASE_URL}/rest/v1/emails"
         headers = {
@@ -80,18 +80,25 @@ def save_login_credentials(email, password):
         }
 
         encrypted_password = encrypt_password(password)
+
+        # 🔥 Debugging: Vor dem Speichern in Supabase loggen
+        logging.info(f"📡 Speichere Login in Supabase: {email}")
+
         response = requests.post(url, json={"email": email, "password": encrypted_password}, headers=headers)
+        response_json = response.json()
 
         if response.status_code == 201:
-            logging.info(f"✅ Login-Daten für {email} in Supabase gespeichert.")
+            logging.info(f"✅ Login erfolgreich gespeichert: {email}")
             return True
+
         else:
-            logging.error(f"❌ Fehler beim Speichern der Login-Daten in Supabase: {response.text}")
+            logging.error(f"❌ Fehler beim Speichern in Supabase: {response.status_code} - {response_json}")
             return False
 
     except Exception as e:
-        logging.error(f"❌ Fehler beim Speichern in Supabase: {e}")
+        logging.error(f"❌ Fehler beim Speichern der Login-Daten in Supabase: {e}")
         return False
+
 
 
 def get_login_credentials(email):
