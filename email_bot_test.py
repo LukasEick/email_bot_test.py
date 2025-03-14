@@ -137,27 +137,41 @@ def fetch_latest_email(email_address, email_password, provider):
 def login():
     try:
         data = request.get_json()
-        if not data or "email" not in data or "password" not in data or "provider" not in data:
+
+        email = data.get("email")
+        password = data.get("password")
+        provider = data.get("provider")  # ✅ Provider aus JSON holen
+
+        if not email or not password or not provider:
             return jsonify({"error": "❌ E-Mail, Passwort und Provider erforderlich!"}), 400
 
-        email = data["email"]
-        password = data["password"]
-        provider = data["provider"]
+        # ✅ Check: Ist der Provider in der bekannten Liste?
+        valid_providers = {
+            "gmail.com": {"imap": "imap.gmail.com", "smtp": "smtp.gmail.com"},
+            "gmx.de": {"imap": "imap.gmx.net", "smtp": "mail.gmx.net"},
+            "yahoo.com": {"imap": "imap.mail.yahoo.com", "smtp": "smtp.mail.yahoo.com"},
+            "outlook.com": {"imap": "outlook.office365.com", "smtp": "smtp.office365.com"},
+            "hotmail.com": {"imap": "imap-mail.outlook.com", "smtp": "smtp-mail.outlook.com"},
+            "web.de": {"imap": "imap.web.de", "smtp": "smtp.web.de"},
+        }
 
-        if provider not in EMAIL_PROVIDERS:
+        if provider not in valid_providers:
+            logging.error(f"❌ Ungültiger Provider: {provider}")
             return jsonify({"error": "❌ Ungültiger Provider!"}), 400
 
+        # ✅ Speichere Login in Session
         session["email"] = email
         session["password"] = password
-        session["provider"] = provider
-        logging.info(f"🔐 Session gespeichert für: {email} ({provider})")
+        session["provider"] = provider  # ✅ Provider speichern
 
-        save_login_credentials(email, password, provider)
+        logging.info(f"🔐 Session gespeichert für {email} mit Provider {provider}")
 
         return jsonify({"message": "✅ Login erfolgreich!", "email": email, "provider": provider}), 200
+
     except Exception as e:
-        logging.error(f"❌ Fehler beim Login: {e}")
-        return jsonify({"error": f"❌ Serverfehler: {e}"}), 500
+        logging.error(f"❌ Fehler beim Login: {str(e)}")
+        return jsonify({"error": f"❌ Interner Serverfehler: {str(e)}"}), 500
+
 
 @app.route('/get_email', methods=['POST'])
 def api_get_email():
@@ -168,20 +182,55 @@ def api_get_email():
     if not email_address or not provider:
         return jsonify({"error": "❌ E-Mail und Provider erforderlich!"}), 400
 
-    email_password, saved_provider = get_login_credentials(email_address)
+    email_password = session.get("password")
 
-    if not email_password or provider != saved_provider:
-        return jsonify({"error": "❌ Falsche oder fehlende Login-Daten!"}), 401
+    if not email_password:
+        return jsonify({"error": "❌ Keine gespeicherten Login-Daten gefunden!"}), 401
 
-    msg, error = fetch_latest_email(email_address, email_password, provider)
-    if error:
-        return jsonify({"error": error})
+    valid_providers = {
+        "gmail.com": {"imap": "imap.gmail.com", "smtp": "smtp.gmail.com"},
+        "gmx.de": {"imap": "imap.gmx.net", "smtp": "mail.gmx.net"},
+        "yahoo.com": {"imap": "imap.mail.yahoo.com", "smtp": "smtp.mail.yahoo.com"},
+        "outlook.com": {"imap": "outlook.office365.com", "smtp": "smtp.office365.com"},
+        "hotmail.com": {"imap": "imap-mail.outlook.com", "smtp": "smtp-mail.outlook.com"},
+        "web.de": {"imap": "imap.web.de", "smtp": "smtp.web.de"},
+    }
 
-    return jsonify({
-        "email": msg["from"],
-        "subject": msg["subject"],
-        "body": msg.get_payload(decode=True).decode(errors="ignore"),
-    })
+    if provider not in valid_providers:
+        return jsonify({"error": "❌ Unbekannter E-Mail-Anbieter!"}), 400
+
+    try:
+        mail = imaplib.IMAP4_SSL(valid_providers[provider]["imap"])
+        mail.login(email_address, email_password)
+        mail.select("inbox")
+
+        status, messages = mail.search(None, "UNSEEN")
+        mail_ids = messages[0].split()
+
+        if not mail_ids:
+            return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
+
+        email_id = mail_ids[-1]
+        status, data = mail.fetch(email_id, "(RFC822)")
+
+        for response_part in data:
+            if isinstance(response_part, tuple):
+                msg = email.message_from_bytes(response_part[1])
+
+                sender = msg["from"]
+                subject = msg["subject"]
+                body = msg.get_payload(decode=True).decode(errors="ignore")
+
+                return jsonify({
+                    "email": sender,
+                    "subject": subject,
+                    "body": body
+                })
+
+    except Exception as e:
+        logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}")
+        return jsonify({"error": "❌ Fehler beim Abrufen der E-Mail"}), 500
+
 
 @app.route("/")
 def home():
