@@ -194,5 +194,21 @@ def api_get_email():
 def home():
     return jsonify({"message": "✅ Flask API läuft!"})
 
+@app.route('/session_test', methods=['GET'])
+def session_test():
+    try:
+        email = session.get("email")
+        password = session.get("password")
+
+        if not email or not password:
+            return jsonify({"error": "❌ Keine gespeicherten Login-Daten gefunden!"}), 401
+
+        return jsonify({"message": "✅ Session gespeichert!", "email": email, "password": "*****"}), 200
+
+    except Exception as e:
+        logging.error(f"❌ Fehler mit Flask-Session: {e}")
+        return jsonify({"error": f"❌ Fehler mit Session: {e}"}), 500
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(PORT), debug=False)
