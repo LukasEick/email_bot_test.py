@@ -7,7 +7,8 @@ app = Flask(__name__)
 
 # 🔥 Sichere Session-Konfiguration für Netlify + Render
 app.config["SESSION_PERMANENT"] = False
-app.config["SESSION_TYPE"] = "filesystem"
+app.config["SESSION_TYPE"] = "filesystem"  # Alternativ "redis", wenn Redis verwendet wird
+app.config["SESSION_FILE_DIR"] = "/tmp/flask_session"  # 🔥 Speicherort für Render-Session-Dateien
 app.config["SESSION_COOKIE_SECURE"] = True
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "None"
@@ -15,7 +16,7 @@ app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "supersecretkey")
 
 Session(app)
 
-# ✅ **Richtige CORS-Konfiguration**
+# ✅ **CORS-Konfiguration für Netlify**
 CORS(app, resources={r"/*": {"origins": "https://emailcrawlerlukas.netlify.app"}}, supports_credentials=True)
 
 @app.after_request
@@ -26,25 +27,20 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Credentials"] = "true"
     return response
 
-# ✅ **Test-Route: Session setzen**
+# ✅ **Session speichern**
 @app.route("/set_session", methods=["POST"])
 def set_session():
     data = request.get_json()
     session["test_data"] = data.get("value", "default_value")
     return jsonify({"message": "✅ Session gespeichert!", "session_value": session["test_data"]})
 
-# ✅ **Test-Route: Session abrufen**
+# ✅ **Session abrufen**
 @app.route("/get_session", methods=["GET"])
 def get_session():
     session_value = session.get("test_data")
     if session_value:
         return jsonify({"message": "✅ Session gefunden!", "session_value": session_value})
     return jsonify({"error": "❌ Keine gespeicherte Session gefunden!"}), 401
-
-# ✅ **Test-Route: CORS Debug**
-@app.route("/test_cors", methods=["GET"])
-def test_cors():
-    return jsonify({"message": "✅ CORS funktioniert!"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), debug=False)
