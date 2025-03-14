@@ -1,4 +1,4 @@
-iimport imaplib
+import imaplib
 import email
 import logging
 import smtplib
