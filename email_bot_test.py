@@ -5,14 +5,26 @@ import os
 
 app = Flask(__name__)
 
-# Konfiguration für Sessions (Filesystem oder Redis, je nach Render-Support)
+# 🔥 Wichtige Session-Konfiguration
 app.config["SESSION_PERMANENT"] = False
-app.config["SESSION_TYPE"] = "filesystem"  # Falls es nicht klappt, versuche "redis"
+app.config["SESSION_TYPE"] = "filesystem"
+app.config["SESSION_COOKIE_SECURE"] = True  # Muss bei HTTPS aktiviert sein
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "None"  # 🔥 Sehr wichtig für CORS
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "fallback_sicherer_schlüssel")
 
 Session(app)
 
-CORS(app, supports_credentials=True)  # CORS für Session-Cookies erlauben
+# **Richtige CORS-Konfiguration**
+CORS(app, resources={r"/*": {"origins": "https://emailcrawlerlukas.netlify.app"}}, supports_credentials=True)
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "https://emailcrawlerlukas.netlify.app"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
 
 @app.route("/set_session")
 def set_session():
