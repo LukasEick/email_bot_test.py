@@ -69,24 +69,30 @@ def encrypt_password(password):
 def decrypt_password(encrypted_password):
     return cipher.decrypt(encrypted_password.encode()).decode()
 
-# 📧 Supabase: Login speichern & abrufen
 def save_login_credentials(email, password):
-    """Speichert Login-Daten sicher in Supabase, falls noch nicht vorhanden."""
+    """Speichert Login-Daten sicher in Supabase."""
     try:
         url = f"{SUPABASE_URL}/rest/v1/emails"
-        headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
-
-        check_response = requests.get(f"{url}?select=email&email=eq.{email}", headers=headers)
-        if check_response.status_code == 200 and check_response.json():
-            return True  # Login bereits gespeichert
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json"
+        }
 
         encrypted_password = encrypt_password(password)
         response = requests.post(url, json={"email": email, "password": encrypted_password}, headers=headers)
-        return response.status_code == 201
+
+        if response.status_code == 201:
+            logging.info(f"✅ Login-Daten für {email} in Supabase gespeichert.")
+            return True
+        else:
+            logging.error(f"❌ Fehler beim Speichern der Login-Daten in Supabase: {response.text}")
+            return False
 
     except Exception as e:
-        logging.error(f"❌ Fehler beim Speichern der Login-Daten: {e}")
+        logging.error(f"❌ Fehler beim Speichern in Supabase: {e}")
         return False
+
 
 def get_login_credentials():
     """Holt Login-Daten aus der Session."""
@@ -167,32 +173,91 @@ def send_email(recipient, subject, body):
         logging.error(f"❌ SMTP Fehler: {e}")
         return "❌ Fehler beim Senden der E-Mail!"
 
-# 🔥 Flask Routen
-@app.route('/login', methods=['POST'])
+@app.route('/login', methods=['POST', 'OPTIONS'])
 def login():
+    if request.method == "OPTIONS":
+        return jsonify({"message": "CORS Preflight OK"}), 200
+
     try:
         data = request.get_json()
         if not data or "email" not in data or "password" not in data:
             return jsonify({"error": "❌ E-Mail und Passwort erforderlich!"}), 400
 
-        session["email"] = data["email"]
-        session["password"] = data["password"]
+        email = data["email"]
+        password = data["password"]
 
-        return jsonify({"message": "✅ Login erfolgreich!", "email": data["email"]}), 200
+        # Speichere die Login-Daten in der Session
+        session["email"] = email
+        session["password"] = password
+        logging.info(f"🔐 Session gespeichert für: {email}")
+
+        # Backup in Supabase
+        save_login_credentials(email, password)
+
+        return jsonify({"message": "✅ Login erfolgreich!", "email": email}), 200
+
     except Exception as e:
         logging.error(f"❌ Fehler beim Login: {e}")
-        return jsonify({"error": "❌ Interner Serverfehler"}), 500
+        return jsonify({"error": f"❌ Interner Serverfehler: {e}"}), 500
+
 
 @app.route('/get_email', methods=['GET'])
 def api_get_email():
-    msg, error = fetch_latest_email()
-    if error:
-        return jsonify({"error": error})
+    """Holt die aktuelle E-Mail und überprüft die gespeicherte Session."""
+    logging.info("📡 API-Aufruf: /get_email")
 
-    body = msg.get_payload(decode=True).decode(errors="ignore") if msg else "⚠️ Kein Inhalt gefunden."
-    ai_reply = generate_ai_reply(body)
+    email_address = session.get("email")
+    email_password = session.get("password")
 
-    return jsonify({"body": body, "reply": ai_reply})
+    if not email_address or not email_password:
+        logging.warning("⚠️ Keine gespeicherten Login-Daten gefunden!")
+        return jsonify({"error": "❌ Keine gespeicherten Login-Daten gefunden!"}), 401
+
+    logging.info(f"🔑 Login mit {email_address}")
+
+    provider = EMAIL_PROVIDERS.get(email_address.split("@")[-1])
+    if not provider:
+        logging.error(f"❌ Unbekannter E-Mail-Anbieter für: {email_address}")
+        return jsonify({"error": "❌ Unbekannter E-Mail-Anbieter!"}), 400
+
+    try:
+        logging.info(f"📡 Verbinde mit {provider['imap']} per IMAP...")
+
+        mail = imaplib.IMAP4_SSL(provider["imap"])
+        mail.login(email_address, email_password)
+        mail.select("inbox")
+
+        status, messages = mail.search(None, "UNSEEN")
+        mail_ids = messages[0].split()
+
+        logging.info(f"📩 {len(mail_ids)} ungelesene E-Mails gefunden")
+
+        if not mail_ids:
+            return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
+
+        email_id = mail_ids[-1]
+        status, data = mail.fetch(email_id, "(RFC822)")
+
+        for response_part in data:
+            if isinstance(response_part, tuple):
+                msg = email.message_from_bytes(response_part[1])
+
+                sender = msg["from"]
+                subject = msg["subject"]
+                body = msg.get_payload(decode=True).decode(errors="ignore")
+
+                logging.info(f"📨 E-Mail erhalten von {sender}: {subject}")
+
+                return jsonify({
+                    "email": sender,
+                    "subject": subject,
+                    "body": body
+                })
+
+    except Exception as e:
+        logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}", exc_info=True)
+        return jsonify({"error": "❌ Fehler beim Abrufen der E-Mail"}), 500
+
 
 @app.route("/")
 def home():
@@ -200,18 +265,17 @@ def home():
 
 @app.route('/session_test', methods=['GET'])
 def session_test():
-    try:
-        email = session.get("email")
-        password = session.get("password")
+    """Prüft, ob die Session richtig gespeichert wird."""
+    email = session.get("email")
+    password = session.get("password")
 
-        if not email or not password:
-            return jsonify({"error": "❌ Keine gespeicherten Login-Daten gefunden!"}), 401
+    if not email or not password:
+        logging.warning("⚠️ Keine gespeicherten Login-Daten gefunden!")
+        return jsonify({"error": "❌ Keine gespeicherten Login-Daten gefunden!"}), 401
 
-        return jsonify({"message": "✅ Session gespeichert!", "email": email, "password": "*****"}), 200
+    logging.info(f"✅ Session vorhanden: {email}")
+    return jsonify({"message": "✅ Session gespeichert!", "email": email, "password": "*****"}), 200
 
-    except Exception as e:
-        logging.error(f"❌ Fehler mit Flask-Session: {e}")
-        return jsonify({"error": f"❌ Fehler mit Session: {e}"}), 500
 
 
 if __name__ == "__main__":
