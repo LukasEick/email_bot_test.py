@@ -1,24 +1,35 @@
 import imaplib
 import email
 import logging
-import smtplib
 import os
 import requests
-import openai
 from flask import Flask, jsonify, request, session
 from flask_cors import CORS
-from email.mime.text import MIMEText
 from dotenv import load_dotenv
 from flask_session import Session
+from cryptography.fernet import Fernet
 
 # 🔥 Lade Umgebungsvariablen
 load_dotenv()
 
-# 🔑 Wichtige Umgebungsvariablen
+PORT = os.getenv("PORT", "8080")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-SECRET_KEY = os.getenv("SECRET_KEY", "fallback_secure_key")
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+SECRET_KEY = os.getenv("SECRET_KEY", "super_secret_key")
+
+# 🔥 Fehlerprüfung für Umgebungsvariablen
+if not all([SUPABASE_URL, SUPABASE_KEY, ENCRYPTION_KEY, SECRET_KEY]):
+    raise ValueError("❌ Fehlende Umgebungsvariablen! Stelle sicher, dass alle Werte in Render gesetzt sind.")
+
+cipher = Fernet(ENCRYPTION_KEY)
+
+EMAIL_PROVIDERS = {
+    "gmail.com": {"imap": "imap.gmail.com"},
+    "gmx.de": {"imap": "imap.gmx.net"},
+    "yahoo.com": {"imap": "imap.mail.yahoo.com"},
+    "outlook.com": {"imap": "outlook.office365.com"},
+}
 
 # 🔥 Flask Setup
 app = Flask(__name__)
@@ -32,24 +43,56 @@ app.config["SECRET_KEY"] = SECRET_KEY
 Session(app)
 CORS(app, supports_credentials=True)
 
-# 🔥 Logging Setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 🌐 E-Mail-Anbieter-Liste
-EMAIL_PROVIDERS = {
-    "gmail.com": {"imap": "imap.gmail.com", "smtp": "smtp.gmail.com"},
-    "gmx.de": {"imap": "imap.gmx.net", "smtp": "mail.gmx.net"},
-    "yahoo.com": {"imap": "imap.mail.yahoo.com", "smtp": "smtp.mail.yahoo.com"},
-    "outlook.com": {"imap": "outlook.office365.com", "smtp": "smtp.office365.com"},
-    "hotmail.com": {"imap": "imap-mail.outlook.com", "smtp": "smtp-mail.outlook.com"},
-    "web.de": {"imap": "imap.web.de", "smtp": "smtp.web.de"}
-}
+# 🔒 **Passwort-Verschlüsselung**
+def encrypt_password(password):
+    return cipher.encrypt(password.encode()).decode()
 
-SMTP_PORT = 587
+def decrypt_password(encrypted_password):
+    return cipher.decrypt(encrypted_password.encode()).decode()
 
-# 📧 IMAP: E-Mail abrufen
-def fetch_latest_email(email_address, email_password, provider):
-    """Holt die neueste ungelesene E-Mail."""
+# 🛡 **Speichern der Login-Daten in Supabase**
+def save_login_credentials(email, password):
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/emails"
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        encrypted_password = encrypt_password(password)
+        response = requests.post(url, json={"email": email, "password": encrypted_password}, headers=headers)
+
+        if response.status_code == 201:
+            logging.info(f"✅ Login gespeichert: {email}")
+            return True
+        else:
+            logging.error(f"❌ Fehler beim Speichern in Supabase: {response.json()}")
+            return False
+    except Exception as e:
+        logging.error(f"❌ Fehler beim Speichern der Login-Daten: {e}")
+        return False
+
+# 🔑 **Login-Daten aus Supabase abrufen**
+def get_login_credentials(email):
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/emails?select=password&email=eq.{email}"
+        headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
+        response = requests.get(url, headers=headers)
+
+        if response.status_code == 200 and response.json():
+            encrypted_password = response.json()[0]["password"]
+            return decrypt_password(encrypted_password)
+
+    except Exception as e:
+        logging.error(f"❌ Fehler beim Abrufen der Login-Daten: {e}")
+
+    return None
+
+# 📧 **IMAP: Letzte ungelesene E-Mail abrufen**
+def fetch_latest_unread_email(email_address, email_password, provider):
     try:
         mail = imaplib.IMAP4_SSL(provider["imap"])
         mail.login(email_address, email_password)
@@ -66,87 +109,78 @@ def fetch_latest_email(email_address, email_password, provider):
 
         for response_part in data:
             if isinstance(response_part, tuple):
-                return email.message_from_bytes(response_part[1]), None
+                msg = email.message_from_bytes(response_part[1])
+                sender = msg["from"]
+                subject = msg["subject"]
+                body = extract_email_body(msg)
+                return {"email": sender, "subject": subject, "body": body}, None
 
     except Exception as e:
         logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}")
         return None, "❌ Fehler beim Abrufen der E-Mail!"
 
-# 📤 SMTP: E-Mail senden
-def send_email(email_address, email_password, recipient, subject, body, provider):
-    """Sendet eine E-Mail über den SMTP-Server des Anbieters."""
-    try:
-        with smtplib.SMTP(provider["smtp"], SMTP_PORT) as server:
-            server.starttls()
-            server.login(email_address, email_password)
+    return None, "❌ Unbekannter Fehler!"
 
-            msg = MIMEText(body, "plain", "utf-8")
-            msg["From"] = email_address
-            msg["To"] = recipient
-            msg["Subject"] = subject
+# 📜 **E-Mail-Text extrahieren**
+def extract_email_body(msg):
+    body = ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_type() == "text/plain":
+                body = part.get_payload(decode=True).decode(errors="ignore")
+                break
+    else:
+        body = msg.get_payload(decode=True).decode(errors="ignore")
+    return body.strip()
 
-            server.sendmail(email_address, recipient, msg.as_string())
+# 🏠 **API-Startseite**
+@app.route("/")
+def home():
+    return jsonify({"message": "✅ Flask API läuft!"})
 
-        return "✅ Antwort erfolgreich gesendet!"
-    except Exception as e:
-        logging.error(f"❌ Fehler beim Senden der E-Mail: {e}")
-        return "❌ Fehler beim Senden der E-Mail!"
-
-
-# 🟢 API-ROUTEN
-@app.route("/login", methods=["POST"])
+# 🔥 **Login API (Speichert Session-Daten)**
+@app.route('/login', methods=['POST'])
 def login():
-    """Speichert Login-Daten in der Session."""
-    data = request.get_json()
-    email_address = data.get("email")
-    password = data.get("password")
-    provider_domain = data.get("provider")
+    try:
+        data = request.get_json()
+        email = data.get("email")
+        password = data.get("password")
+        provider = data.get("provider")
 
-    if not email_address or not password or not provider_domain:
-        return jsonify({"error": "❌ Alle Felder müssen ausgefüllt werden!"}), 400
+        if not email or not password or not provider:
+            return jsonify({"error": "❌ Fehlende Login-Daten!"}), 400
 
-    provider = EMAIL_PROVIDERS.get(provider_domain)
-    if not provider:
-        return jsonify({"error": "❌ Ungültiger Provider!"}), 400
+        session["email"] = email
+        session["password"] = password
+        session["provider"] = provider
 
-    session["email"] = email_address
-    session["password"] = password
-    session["provider"] = provider_domain
+        save_login_credentials(email, password)
 
-    return jsonify({"message": "✅ Login erfolgreich!"}), 200
+        return jsonify({"message": "✅ Login erfolgreich!"}), 200
 
+    except Exception as e:
+        logging.error(f"❌ Fehler beim Login: {e}")
+        return jsonify({"error": f"❌ Fehler: {e}"}), 500
 
-@app.route("/get_email", methods=["GET"])
-def get_email():
-    """Holt die letzte ungelesene E-Mail aus dem Postfach."""
+# 📩 **Letzte ungelesene E-Mail abrufen**
+@app.route('/get_email', methods=['POST'])
+def api_get_email():
     email_address = session.get("email")
     email_password = session.get("password")
-    provider_domain = session.get("provider")
+    provider_name = session.get("provider")
 
-    if not email_address or not email_password or not provider_domain:
+    if not email_address or not email_password or not provider_name:
         return jsonify({"error": "❌ Keine gespeicherten Login-Daten!"}), 401
 
-    provider = EMAIL_PROVIDERS.get(provider_domain)
+    provider = EMAIL_PROVIDERS.get(provider_name)
     if not provider:
-        return jsonify({"error": "❌ Ungültiger Provider!"}), 400
+        return jsonify({"error": "❌ Unbekannter E-Mail-Anbieter!"}), 400
 
-    msg, error = fetch_latest_email(email_address, email_password, provider)
-
+    email_data, error = fetch_latest_unread_email(email_address, email_password, provider)
     if error:
         return jsonify({"error": error}), 400
 
-    return jsonify({
-        "email": msg["from"],
-        "subject": msg["subject"],
-        "body": msg.get_payload(decode=True).decode(errors="ignore"),
-    })
-
-
-@app.route("/test_session", methods=["GET"])
-def test_session():
-    """Testet, ob die Session korrekt gespeichert wurde."""
-    return jsonify({"email": session.get("email"), "provider": session.get("provider")})
-
+    return jsonify(email_data)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    app.run(host="0.0.0.0", port=int(PORT), debug=False)
