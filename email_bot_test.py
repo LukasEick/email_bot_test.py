@@ -25,10 +25,11 @@ print(f"🔍 REDIS_URL aus Umgebungsvariablen: {REDIS_URL}")  # Debugging
 # ✅ Initialisiere Redis-Client
 try:
     redis_client = redis.StrictRedis.from_url(REDIS_URL, decode_responses=True)
-    redis_client.ping()  # Teste Verbindung zu Redis
+    redis_client.ping()  # Testet die Verbindung
     print("✅ Verbindung zu Redis erfolgreich!")
 except redis.ConnectionError:
     raise ValueError("❌ Verbindung zu Redis fehlgeschlagen! Überprüfe die REDIS_URL.")
+
 
 # 🔥 Lade andere Umgebungsvariablen
 PORT = os.getenv("PORT", "8080")
@@ -61,7 +62,8 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "None"
 app.config["SECRET_KEY"] = SECRET_KEY
 app.config["SESSION_KEY_PREFIX"] = "session:"
-app.config["SESSION_REDIS"] = redis_client  # ✅ Nutze die initialisierte Redis-Verbindung
+app.config["SESSION_REDIS"] = redis.StrictRedis.from_url(REDIS_URL, decode_responses=True)
+
 
 Session(app)
 CORS(app, supports_credentials=True)
