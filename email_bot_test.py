@@ -60,8 +60,20 @@ def encrypt_password(password):
 def decrypt_password(encrypted_password):
     return cipher.decrypt(encrypted_password.encode()).decode()
 
-# 🛡 **Speichern der Login-Daten in Supabase**
+def detect_email_provider(email_address):
+    """Erkennt den E-Mail-Anbieter anhand der Domain."""
+    if not email_address:
+        logging.error("❌ Keine E-Mail-Adresse übergeben!")
+        return None
+
+    domain = email_address.split("@")[-1].lower()
+    logging.info(f"🔍 Überprüfe E-Mail-Domain: {domain}")
+
+    return EMAIL_PROVIDERS.get(domain, None)
+
+
 def save_login_credentials(email, password):
+    """Speichert Login-Daten in Supabase, falls sie noch nicht existieren."""
     try:
         url = f"{SUPABASE_URL}/rest/v1/emails"
         headers = {
@@ -70,18 +82,27 @@ def save_login_credentials(email, password):
             "Content-Type": "application/json"
         }
 
+        # ✅ Vor dem Speichern prüfen, ob E-Mail existiert
+        check_response = requests.get(f"{url}?email=eq.{email}&select=email", headers=headers)
+
+        if check_response.status_code == 200 and check_response.json():
+            logging.info(f"⚠️ E-Mail {email} existiert bereits in Supabase. Kein erneutes Speichern nötig.")
+            return True  # E-Mail existiert bereits → Kein Speichern nötig
+
         encrypted_password = encrypt_password(password)
         response = requests.post(url, json={"email": email, "password": encrypted_password}, headers=headers)
 
         if response.status_code == 201:
-            logging.info(f"✅ Login gespeichert: {email}")
+            logging.info(f"✅ Login-Daten erfolgreich gespeichert für {email}")
             return True
         else:
-            logging.error(f"❌ Fehler beim Speichern in Supabase: {response.json()}")
+            logging.error(f"❌ Fehler beim Speichern in Supabase: {response.status_code} - {response.json()}")
             return False
+
     except Exception as e:
-        logging.error(f"❌ Fehler beim Speichern der Login-Daten: {e}")
+        logging.error(f"❌ Fehler beim Speichern der Login-Daten in Supabase: {e}")
         return False
+
 
 # 🔑 **Login-Daten aus Supabase abrufen**
 def get_login_credentials(email):
