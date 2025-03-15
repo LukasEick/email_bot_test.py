@@ -45,6 +45,14 @@ CORS(app, supports_credentials=True)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "https://emailcrawlerlukas.netlify.app"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    return response
+
 # 🔒 **Passwort-Verschlüsselung**
 def encrypt_password(password):
     return cipher.encrypt(password.encode()).decode()
@@ -141,6 +149,7 @@ def home():
 # 🔥 **Login API (Speichert Session-Daten)**
 @app.route('/login', methods=['POST'])
 def login():
+    """Speichert Login-Daten in der Session & Supabase"""
     try:
         data = request.get_json()
         email = data.get("email")
@@ -148,19 +157,24 @@ def login():
         provider = data.get("provider")
 
         if not email or not password or not provider:
-            return jsonify({"error": "❌ Fehlende Login-Daten!"}), 400
+            return jsonify({"error": "❌ E-Mail, Passwort & Provider sind erforderlich!"}), 400
 
+        # 🔥 Speichere in der SESSION
         session["email"] = email
         session["password"] = password
-        session["provider"] = provider
+        session.modified = True  # Wichtig für Updates!
 
+        logging.info(f"✅ Session gespeichert für: {email}")
+
+        # Backup in Supabase (falls gewünscht)
         save_login_credentials(email, password)
 
-        return jsonify({"message": "✅ Login erfolgreich!"}), 200
+        return jsonify({"message": "✅ Login erfolgreich!", "email": email}), 200
 
     except Exception as e:
         logging.error(f"❌ Fehler beim Login: {e}")
-        return jsonify({"error": f"❌ Fehler: {e}"}), 500
+        return jsonify({"error": f"❌ Interner Serverfehler: {e}"}), 500
+
 
 @app.route('/get_email', methods=['POST'])
 def api_get_email():
