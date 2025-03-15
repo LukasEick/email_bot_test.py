@@ -22,7 +22,7 @@ if not REDIS_URL:
 
 # ✅ Initialisiere Redis-Client
 try:
-    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+    redis_client = redis.from_url(REDIS_URL, decode_responses=False)
     redis_client.ping()  # Testet die Verbindung
     print("✅ Verbindung zu Redis erfolgreich!")
 except redis.ConnectionError:
@@ -59,7 +59,7 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "None"
 app.config["SECRET_KEY"] = SECRET_KEY
 app.config["SESSION_KEY_PREFIX"] = "session:"
-app.config["SESSION_REDIS"] = redis.from_url(REDIS_URL, decode_responses=True)
+app.config["SESSION_REDIS"] = redis.from_url(REDIS_URL, decode_responses=False)
 
 Session(app)
 CORS(app, supports_credentials=True)
@@ -106,9 +106,9 @@ def login():
             return jsonify({"error": "❌ E-Mail, Passwort & Provider sind erforderlich!"}), 400
 
         # 🔥 Speichere in der Redis-Session
-        session["user"] = email
-        session["password"] = password
-        session["provider"] = provider
+        session["user"] = email.encode("utf-8")
+        session["password"] = password.encode("utf-8")
+        session["provider"] = provider.encode("utf-8")
         session.modified = True
 
         logging.info(f"✅ Redis-Session gespeichert für: {email}")
