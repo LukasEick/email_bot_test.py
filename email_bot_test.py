@@ -120,8 +120,9 @@ def get_login_credentials(email):
 
     return None
 
-# 📧 **IMAP: Letzte ungelesene E-Mail abrufen**
+# 📧 IMAP: Letzte ungelesene E-Mail abrufen (mit Fehlerhandling & MIME-Support)
 def fetch_latest_unread_email(email_address, email_password, provider):
+    """Holt die letzte ungelesene E-Mail, unterstützt verschiedene MIME-Typen."""
     try:
         mail = imaplib.IMAP4_SSL(provider["imap"])
         mail.login(email_address, email_password)
@@ -141,7 +142,8 @@ def fetch_latest_unread_email(email_address, email_password, provider):
                 msg = email.message_from_bytes(response_part[1])
                 sender = msg["from"]
                 subject = msg["subject"]
-                body = extract_email_body(msg)
+                body = extract_email_body(msg)  # 🔥 Verbesserte Methode verwenden!
+
                 return {"email": sender, "subject": subject, "body": body}, None
 
     except Exception as e:
@@ -150,17 +152,24 @@ def fetch_latest_unread_email(email_address, email_password, provider):
 
     return None, "❌ Unbekannter Fehler!"
 
-# 📜 **E-Mail-Text extrahieren**
+
 def extract_email_body(msg):
-    body = ""
+    """Extrahiert den lesbaren Text aus einer E-Mail, unabhängig vom Format."""
     if msg.is_multipart():
         for part in msg.walk():
-            if part.get_content_type() == "text/plain":
-                body = part.get_payload(decode=True).decode(errors="ignore")
-                break
-    else:
-        body = msg.get_payload(decode=True).decode(errors="ignore")
-    return body.strip()
+            content_type = part.get_content_type()
+            content_disposition = str(part.get("Content-Disposition"))
+
+            # 📝 Nur den ersten Text-/HTML-Teil extrahieren
+            if content_type == "text/plain" and "attachment" not in content_disposition:
+                return part.get_payload(decode=True).decode(errors="ignore")
+            elif content_type == "text/html" and "attachment" not in content_disposition:
+                html = part.get_payload(decode=True).decode(errors="ignore")
+                return BeautifulSoup(html, "html.parser").get_text()  # HTML in Klartext umwandeln
+
+    # Fallback: Direktes get_payload
+    return msg.get_payload(decode=True).decode(errors="ignore") if msg.get_payload(decode=True) else "⚠️ Kein Textinhalt gefunden."
+
 
 # 🏠 **API-Startseite**
 @app.route("/")
