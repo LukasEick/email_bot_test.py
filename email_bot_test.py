@@ -3,37 +3,48 @@ import email
 import logging
 import os
 import requests
+import redis
 from flask import Flask, jsonify, request, session
 from flask_cors import CORS
 from dotenv import load_dotenv
 from flask_session import Session
 from cryptography.fernet import Fernet
 from bs4 import BeautifulSoup
-import redis
-
-
 
 # 🔥 Lade Umgebungsvariablen
 load_dotenv()
 
-# Hole die Redis-URL aus den Render-Umgebungsvariablen
+# 🚀 Lade die Redis-URL aus den Umgebungsvariablen
 REDIS_URL = os.getenv("REDIS_URL")
 
-# Initialisiere Redis-Verbindung
-redis_client = redis.StrictRedis.from_url(REDIS_URL, decode_responses=True)
+if not REDIS_URL:
+    raise ValueError("❌ Keine REDIS_URL gefunden! Stelle sicher, dass sie in den Render-Umgebungsvariablen gesetzt ist.")
 
+print(f"🔍 REDIS_URL aus Umgebungsvariablen: {REDIS_URL}")  # Debugging
+
+# ✅ Initialisiere Redis-Client
+try:
+    redis_client = redis.StrictRedis.from_url(REDIS_URL, decode_responses=True)
+    redis_client.ping()  # Teste Verbindung zu Redis
+    print("✅ Verbindung zu Redis erfolgreich!")
+except redis.ConnectionError:
+    raise ValueError("❌ Verbindung zu Redis fehlgeschlagen! Überprüfe die REDIS_URL.")
+
+# 🔥 Lade andere Umgebungsvariablen
 PORT = os.getenv("PORT", "8080")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 SECRET_KEY = os.getenv("SECRET_KEY", "super_secret_key")
 
-# 🔥 Fehlerprüfung für Umgebungsvariablen
+# 🔥 Fehlerprüfung für alle wichtigen Umgebungsvariablen
 if not all([SUPABASE_URL, SUPABASE_KEY, ENCRYPTION_KEY, SECRET_KEY]):
     raise ValueError("❌ Fehlende Umgebungsvariablen! Stelle sicher, dass alle Werte in Render gesetzt sind.")
 
+# 🔐 Initialisiere Verschlüsselung
 cipher = Fernet(ENCRYPTION_KEY)
 
+# 📩 E-Mail Provider Konfiguration
 EMAIL_PROVIDERS = {
     "gmail.com": {"imap": "imap.gmail.com"},
     "gmx.de": {"imap": "imap.gmx.net"},
@@ -41,7 +52,7 @@ EMAIL_PROVIDERS = {
     "outlook.com": {"imap": "outlook.office365.com"},
 }
 
-# 🔥 Flask Setup
+# 🔥 Flask Setup mit Redis für Sessions
 app = Flask(__name__)
 app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_TYPE"] = "redis"
@@ -49,20 +60,14 @@ app.config["SESSION_COOKIE_SECURE"] = True
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "None"
 app.config["SECRET_KEY"] = SECRET_KEY
+app.config["SESSION_KEY_PREFIX"] = "session:"
+app.config["SESSION_REDIS"] = redis_client  # ✅ Nutze die initialisierte Redis-Verbindung
 
 Session(app)
 CORS(app, supports_credentials=True)
 
+# ✅ Logging Setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
-# 🔥 Verbinde mit Redis für Sessions
-app.config["SESSION_REDIS"] = Redis(
-    host=os.getenv("REDIS_HOST"),
-    port=int(os.getenv("REDIS_PORT", 6379)),
-    password=os.getenv("REDIS_PASSWORD"),
-    decode_responses=True
-)
-
 
 @app.after_request
 def add_cors_headers(response):
@@ -71,13 +76,6 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     return response
-
-# Teste die Verbindung
-try:
-    redis_client.ping()
-    print("✅ Verbindung zu Redis erfolgreich!")
-except redis.ConnectionError:
-    print("❌ Verbindung zu Redis fehlgeschlagen!")
 
 # 🔒 **Passwort-Verschlüsselung**
 def encrypt_password(password):
