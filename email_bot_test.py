@@ -154,16 +154,24 @@ def save_login_credentials(email, password):
         logging.error(f"❌ Fehler beim Speichern der Login-Daten in Supabase: {e}")
         return False
 
-# 📧 **IMAP: Letzte ungelesene E-Mail abrufen**
 @app.route('/get_email', methods=['POST'])
 def api_get_email():
+    """Holt die letzte ungelesene E-Mail mit benutzerspezifischer Redis-Session"""
     try:
         logging.info("📡 API-Aufruf: /get_email")
 
-        # 🔥 Abrufen der Benutzerspezifischen Session-Daten
+        # 🔥 User-spezifische Session-Daten abrufen
         email_address = session.get("user")
         email_password = session.get("password")
         provider = session.get("provider")
+
+        # Falls die Werte als Bytes gespeichert sind, dekodieren wir sie
+        if isinstance(email_address, bytes):
+            email_address = email_address.decode("utf-8")
+        if isinstance(email_password, bytes):
+            email_password = email_password.decode("utf-8")
+        if isinstance(provider, bytes):
+            provider = provider.decode("utf-8")
 
         if not email_address or not email_password or not provider:
             logging.warning("⚠️ Keine gültigen Login-Daten gefunden!")
@@ -171,6 +179,7 @@ def api_get_email():
 
         logging.info(f"🔑 E-Mail-Adresse erkannt: {email_address}")
 
+        # Verbindung zum IMAP-Server
         provider_info = EMAIL_PROVIDERS.get(provider)
 
         if not provider_info:
@@ -184,6 +193,8 @@ def api_get_email():
         status, messages = mail.search(None, "UNSEEN")
         mail_ids = messages[0].split()
 
+        logging.info(f"📩 {len(mail_ids)} ungelesene E-Mails gefunden")
+
         if not mail_ids:
             return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
 
@@ -194,11 +205,18 @@ def api_get_email():
             if isinstance(response_part, tuple):
                 msg = email.message_from_bytes(response_part[1])
 
-                return jsonify({"email": msg["from"], "subject": msg["subject"], "body": msg.get_payload(decode=True).decode(errors="ignore")})
+                sender = msg["from"]
+                subject = msg["subject"]
+                body = extract_email_body(msg)
+
+                logging.info(f"📨 E-Mail erhalten von {sender}: {subject}")
+
+                return jsonify({"email": sender, "subject": subject, "body": body})
 
     except Exception as e:
         logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}")
         return jsonify({"error": "❌ Fehler beim Abrufen der E-Mail!"}), 500
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(PORT), debug=False)
