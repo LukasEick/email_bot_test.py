@@ -20,16 +20,13 @@ REDIS_URL = os.getenv("REDIS_URL")
 if not REDIS_URL:
     raise ValueError("❌ Keine REDIS_URL gefunden! Stelle sicher, dass sie in den Render-Umgebungsvariablen gesetzt ist.")
 
-print(f"🔍 REDIS_URL aus Umgebungsvariablen: {REDIS_URL}")  # Debugging
-
 # ✅ Initialisiere Redis-Client
 try:
-    redis_client = redis.StrictRedis.from_url(REDIS_URL, decode_responses=True)
+    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
     redis_client.ping()  # Testet die Verbindung
     print("✅ Verbindung zu Redis erfolgreich!")
 except redis.ConnectionError:
     raise ValueError("❌ Verbindung zu Redis fehlgeschlagen! Überprüfe die REDIS_URL.")
-
 
 # 🔥 Lade andere Umgebungsvariablen
 PORT = os.getenv("PORT", "8080")
@@ -62,8 +59,7 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "None"
 app.config["SECRET_KEY"] = SECRET_KEY
 app.config["SESSION_KEY_PREFIX"] = "session:"
-app.config["SESSION_REDIS"] = redis.StrictRedis.from_url(REDIS_URL, decode_responses=True)
-
+app.config["SESSION_REDIS"] = redis.from_url(REDIS_URL, decode_responses=True)
 
 Session(app)
 CORS(app, supports_credentials=True)
@@ -97,7 +93,36 @@ def detect_email_provider(email_address):
 
     return EMAIL_PROVIDERS.get(domain, None)
 
+# ✅ **Login API mit Session & Supabase**
+@app.route('/login', methods=['POST'])
+def login():
+    try:
+        data = request.get_json()
+        email = data.get("email")
+        password = data.get("password")
+        provider = data.get("provider")
 
+        if not email or not password or not provider:
+            return jsonify({"error": "❌ E-Mail, Passwort & Provider sind erforderlich!"}), 400
+
+        # 🔥 Speichere in der Redis-Session
+        session["user"] = email
+        session["password"] = password
+        session["provider"] = provider
+        session.modified = True
+
+        logging.info(f"✅ Redis-Session gespeichert für: {email}")
+
+        # 🔥 Backup in Supabase
+        save_login_credentials(email, password)
+
+        return jsonify({"message": "✅ Login erfolgreich!", "email": email}), 200
+
+    except Exception as e:
+        logging.error(f"❌ Fehler beim Login: {e}")
+        return jsonify({"error": f"❌ Interner Serverfehler: {e}"}), 500
+
+# ✅ **Speichern der Anmeldedaten in Supabase**
 def save_login_credentials(email, password):
     """Speichert Login-Daten in Supabase, falls sie noch nicht existieren."""
     try:
@@ -129,131 +154,13 @@ def save_login_credentials(email, password):
         logging.error(f"❌ Fehler beim Speichern der Login-Daten in Supabase: {e}")
         return False
 
-
-# 🔑 **Login-Daten aus Supabase abrufen**
-def get_login_credentials(email):
-    try:
-        url = f"{SUPABASE_URL}/rest/v1/emails?select=password&email=eq.{email}"
-        headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
-        response = requests.get(url, headers=headers)
-
-        if response.status_code == 200 and response.json():
-            encrypted_password = response.json()[0]["password"]
-            return decrypt_password(encrypted_password)
-
-    except Exception as e:
-        logging.error(f"❌ Fehler beim Abrufen der Login-Daten: {e}")
-
-    return None
-
-# 📧 IMAP: Letzte ungelesene E-Mail abrufen (mit Fehlerhandling & MIME-Support)
-def fetch_latest_unread_email(email_address, email_password, provider):
-    """Holt die letzte ungelesene E-Mail, unterstützt verschiedene MIME-Typen."""
-    try:
-        mail = imaplib.IMAP4_SSL(provider["imap"])
-        mail.login(email_address, email_password)
-        mail.select("inbox")
-
-        status, messages = mail.search(None, "UNSEEN")
-        mail_ids = messages[0].split()
-
-        if not mail_ids:
-            return None, "📭 Keine neuen E-Mails gefunden!"
-
-        email_id = mail_ids[-1]
-        status, data = mail.fetch(email_id, "(RFC822)")
-
-        for response_part in data:
-            if isinstance(response_part, tuple):
-                msg = email.message_from_bytes(response_part[1])
-                sender = msg["from"]
-                subject = msg["subject"]
-                body = extract_email_body(msg)  # 🔥 Verbesserte Methode verwenden!
-
-                return {"email": sender, "subject": subject, "body": body}, None
-
-    except Exception as e:
-        logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}")
-        return None, "❌ Fehler beim Abrufen der E-Mail!"
-
-    return None, "❌ Unbekannter Fehler!"
-
-def extract_email_body(msg):
-    """Extrahiert den besten verfügbaren Text aus der E-Mail (Plaintext oder HTML)."""
-    if msg.is_multipart():
-        text_body = None
-        html_body = None
-
-        for part in msg.walk():
-            content_type = part.get_content_type()
-            content_disposition = str(part.get("Content-Disposition"))
-
-            try:
-                payload = part.get_payload(decode=True)
-                decoded_text = payload.decode(errors="ignore") if payload else None
-
-                # Falls es eine Klartext-Version gibt, speichern
-                if content_type == "text/plain" and "attachment" not in content_disposition:
-                    text_body = decoded_text
-
-                # Falls es HTML gibt, speichern
-                elif content_type == "text/html" and "attachment" not in content_disposition:
-                    html_body = BeautifulSoup(decoded_text, "html.parser").get_text() if decoded_text else None
-
-            except Exception as e:
-                logging.error(f"❌ Fehler beim Dekodieren der E-Mail: {e}")
-                continue
-
-        return text_body or html_body or "⚠️ Kein lesbarer Inhalt gefunden."
-
-    # Falls es keine Multipart-E-Mail ist:
-    payload = msg.get_payload(decode=True)
-    return payload.decode(errors="ignore") if payload else "⚠️ Kein Inhalt gefunden."
-
-
-# 🏠 **API-Startseite**
-@app.route("/")
-def home():
-    return jsonify({"message": "✅ Flask API läuft!"})
-
-@app.route('/login', methods=['POST'])
-def login():
-    """Speichert Login-Daten in der Session & Supabase"""
-    try:
-        data = request.get_json()
-        email = data.get("email")
-        password = data.get("password")
-        provider = data.get("provider")
-
-        if not email or not password or not provider:
-            return jsonify({"error": "❌ E-Mail, Passwort & Provider sind erforderlich!"}), 400
-
-        # 🔥 Speichere in der REDIS-SESSION
-        session["user"] = email
-        session["password"] = password
-        session["provider"] = provider
-        session.modified = True  # Sicherstellen, dass Flask die Session speichert!
-
-        logging.info(f"✅ Redis-Session gespeichert für: {email}")
-
-        # Backup in Supabase (falls gewünscht)
-        save_login_credentials(email, password)
-
-        return jsonify({"message": "✅ Login erfolgreich!", "email": email}), 200
-
-    except Exception as e:
-        logging.error(f"❌ Fehler beim Login: {e}")
-        return jsonify({"error": f"❌ Interner Serverfehler: {e}"}), 500
-
-
-
+# 📧 **IMAP: Letzte ungelesene E-Mail abrufen**
 @app.route('/get_email', methods=['POST'])
 def api_get_email():
-    """Holt die letzte ungelesene E-Mail mit benutzerspezifischer Redis-Session"""
     try:
         logging.info("📡 API-Aufruf: /get_email")
 
-        # 🔥 User-spezifische Session-Daten abrufen
+        # 🔥 Abrufen der Benutzerspezifischen Session-Daten
         email_address = session.get("user")
         email_password = session.get("password")
         provider = session.get("provider")
@@ -264,7 +171,6 @@ def api_get_email():
 
         logging.info(f"🔑 E-Mail-Adresse erkannt: {email_address}")
 
-        # Verbindung zum IMAP-Server
         provider_info = EMAIL_PROVIDERS.get(provider)
 
         if not provider_info:
@@ -278,8 +184,6 @@ def api_get_email():
         status, messages = mail.search(None, "UNSEEN")
         mail_ids = messages[0].split()
 
-        logging.info(f"📩 {len(mail_ids)} ungelesene E-Mails gefunden")
-
         if not mail_ids:
             return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
 
@@ -290,37 +194,11 @@ def api_get_email():
             if isinstance(response_part, tuple):
                 msg = email.message_from_bytes(response_part[1])
 
-                sender = msg["from"]
-                subject = msg["subject"]
-                body = extract_email_body(msg)
-
-                logging.info(f"📨 E-Mail erhalten von {sender}: {subject}")
-
-                return jsonify({"email": sender, "subject": subject, "body": body})
+                return jsonify({"email": msg["from"], "subject": msg["subject"], "body": msg.get_payload(decode=True).decode(errors="ignore")})
 
     except Exception as e:
         logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}")
         return jsonify({"error": "❌ Fehler beim Abrufen der E-Mail!"}), 500
-
-@app.route('/session_test', methods=['GET'])
-def session_test():
-    """Testet, ob die Session richtig gespeichert wird."""
-    try:
-        email = session.get("email")
-        password = session.get("password")
-
-        if not email or not password:
-            logging.warning("⚠️ Keine gespeicherten Login-Daten gefunden!")
-            return jsonify({"error": "❌ Keine gespeicherten Login-Daten gefunden!"}), 401
-
-        logging.info(f"✅ Session vorhanden: {email}")
-        return jsonify({"message": "✅ Session gespeichert!", "email": email, "password": "*****"}), 200
-
-    except Exception as e:
-        logging.error(f"❌ Fehler mit Flask-Session: {str(e)}")
-        return jsonify({"error": f"❌ Fehler mit Session: {str(e)}"}), 500
-
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(PORT), debug=False)
