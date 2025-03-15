@@ -154,6 +154,39 @@ def save_login_credentials(email, password):
         logging.error(f"❌ Fehler beim Speichern der Login-Daten in Supabase: {e}")
         return False
 
+def extract_email_body(msg):
+    """Extrahiert den besten verfügbaren Text aus der E-Mail (Plaintext oder HTML)."""
+    if msg.is_multipart():
+        text_body = None
+        html_body = None
+
+        for part in msg.walk():
+            content_type = part.get_content_type()
+            content_disposition = str(part.get("Content-Disposition"))
+
+            try:
+                payload = part.get_payload(decode=True)
+                decoded_text = payload.decode(errors="ignore") if payload else None
+
+                # Falls es eine Klartext-Version gibt, speichern
+                if content_type == "text/plain" and "attachment" not in content_disposition:
+                    text_body = decoded_text
+
+                # Falls es HTML gibt, speichern
+                elif content_type == "text/html" and "attachment" not in content_disposition:
+                    html_body = BeautifulSoup(decoded_text, "html.parser").get_text() if decoded_text else None
+
+            except Exception as e:
+                logging.error(f"❌ Fehler beim Dekodieren der E-Mail: {e}")
+                continue
+
+        return text_body or html_body or "⚠️ Kein lesbarer Inhalt gefunden."
+
+    # Falls es keine Multipart-E-Mail ist:
+    payload = msg.get_payload(decode=True)
+    return payload.decode(errors="ignore") if payload else "⚠️ Kein Inhalt gefunden."
+
+
 @app.route('/get_email', methods=['POST'])
 def api_get_email():
     """Holt die letzte ungelesene E-Mail mit benutzerspezifischer Redis-Session"""
