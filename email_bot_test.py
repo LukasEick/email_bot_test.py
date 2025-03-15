@@ -291,14 +291,23 @@ def api_get_email():
         return jsonify({"error": "❌ Fehler beim Abrufen der E-Mail!"}), 500
 
 @app.route('/session_test', methods=['GET'])
-    def session_test():
-        """Testet, ob Redis-Sessions richtig gespeichert werden."""
-        try:
-            session["test"] = "Hallo von Redis!"
-            return jsonify({"message": "✅ Redis Session funktioniert!"}), 200
-        except Exception as e:
-            print(f"❌ Fehler mit Redis-Session: {str(e)}")
-            return jsonify({"error": f"❌ Fehler mit Redis: {str(e)}"}), 500
+def session_test():
+    """Testet, ob die Session richtig gespeichert wird."""
+    try:
+        email = session.get("email")
+        password = session.get("password")
+
+        if not email or not password:
+            logging.warning("⚠️ Keine gespeicherten Login-Daten gefunden!")
+            return jsonify({"error": "❌ Keine gespeicherten Login-Daten gefunden!"}), 401
+
+        logging.info(f"✅ Session vorhanden: {email}")
+        return jsonify({"message": "✅ Session gespeichert!", "email": email, "password": "*****"}), 200
+
+    except Exception as e:
+        logging.error(f"❌ Fehler mit Flask-Session: {str(e)}")
+        return jsonify({"error": f"❌ Fehler mit Session: {str(e)}"}), 500
+
 
 
 if __name__ == "__main__":
