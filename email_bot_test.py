@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from flask_session import Session
 from cryptography.fernet import Fernet
 from bs4 import BeautifulSoup
+from redis import Redis
 
 
 # 🔥 Lade Umgebungsvariablen
@@ -36,7 +37,7 @@ EMAIL_PROVIDERS = {
 # 🔥 Flask Setup
 app = Flask(__name__)
 app.config["SESSION_PERMANENT"] = False
-app.config["SESSION_TYPE"] = "filesystem"
+app.config["SESSION_TYPE"] = "redis"
 app.config["SESSION_COOKIE_SECURE"] = True
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "None"
@@ -47,6 +48,15 @@ CORS(app, supports_credentials=True)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+# 🔥 Verbinde mit Redis für Sessions
+app.config["SESSION_REDIS"] = Redis(
+    host=os.getenv("REDIS_HOST"),
+    port=int(os.getenv("REDIS_PORT", 6379)),
+    password=os.getenv("REDIS_PASSWORD"),
+    decode_responses=True
+)
+
+
 @app.after_request
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "https://emailcrawlerlukas.netlify.app"
@@ -54,6 +64,8 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     return response
+
+print("✅ Flask-Session jetzt mit Redis gespeichert!")
 
 # 🔒 **Passwort-Verschlüsselung**
 def encrypt_password(password):
@@ -192,7 +204,6 @@ def extract_email_body(msg):
 def home():
     return jsonify({"message": "✅ Flask API läuft!"})
 
-# 🔥 **Login API (Speichert Session-Daten)**
 @app.route('/login', methods=['POST'])
 def login():
     """Speichert Login-Daten in der Session & Supabase"""
@@ -205,12 +216,13 @@ def login():
         if not email or not password or not provider:
             return jsonify({"error": "❌ E-Mail, Passwort & Provider sind erforderlich!"}), 400
 
-        # 🔥 Speichere in der SESSION
-        session["email"] = email
+        # 🔥 Speichere in der REDIS-SESSION
+        session["user"] = email
         session["password"] = password
-        session.modified = True  # Wichtig für Updates!
+        session["provider"] = provider
+        session.modified = True  # Sicherstellen, dass Flask die Session speichert!
 
-        logging.info(f"✅ Session gespeichert für: {email}")
+        logging.info(f"✅ Redis-Session gespeichert für: {email}")
 
         # Backup in Supabase (falls gewünscht)
         save_login_credentials(email, password)
@@ -222,78 +234,71 @@ def login():
         return jsonify({"error": f"❌ Interner Serverfehler: {e}"}), 500
 
 
+
 @app.route('/get_email', methods=['POST'])
 def api_get_email():
-    """Holt die letzte ungelesene E-Mail mit detaillierten Logs für Debugging"""
+    """Holt die letzte ungelesene E-Mail mit benutzerspezifischer Redis-Session"""
     try:
         logging.info("📡 API-Aufruf: /get_email")
 
-        data = request.get_json()
-        logging.info(f"📥 Request-Daten erhalten: {data}")
-
-        # Holt gespeicherte Login-Daten aus der Session
-        email_address = session.get("email")
+        # 🔥 User-spezifische Session-Daten abrufen
+        email_address = session.get("user")
         email_password = session.get("password")
+        provider = session.get("provider")
 
-        # Falls keine Session existiert, holen wir die Daten aus dem Request
-        if not email_address or not email_password:
-            email_address = data.get("email")
-            email_password = get_login_credentials(email_address)  # Holt Passwort aus DB falls nötig
-
-        if not email_address or not email_password:
+        if not email_address or not email_password or not provider:
             logging.warning("⚠️ Keine gültigen Login-Daten gefunden!")
             return jsonify({"error": "❌ Keine gespeicherten Login-Daten gefunden!"}), 401
 
         logging.info(f"🔑 E-Mail-Adresse erkannt: {email_address}")
 
-        provider = detect_email_provider(email_address)
-        if not provider:
+        # Verbindung zum IMAP-Server
+        provider_info = EMAIL_PROVIDERS.get(provider)
+
+        if not provider_info:
             logging.error(f"❌ Unbekannter E-Mail-Anbieter für: {email_address}")
             return jsonify({"error": "❌ Unbekannter E-Mail-Anbieter!"}), 400
 
-        # Verbindung zum IMAP-Server aufbauen
-        try:
-            logging.info(f"📡 Verbinde mit {provider['imap']} für {email_address}...")
+        mail = imaplib.IMAP4_SSL(provider_info["imap"])
+        mail.login(email_address, email_password)
+        mail.select("inbox")
 
-            mail = imaplib.IMAP4_SSL(provider["imap"])
-            mail.login(email_address, email_password)
-            mail.select("inbox")
+        status, messages = mail.search(None, "UNSEEN")
+        mail_ids = messages[0].split()
 
-            status, messages = mail.search(None, "UNSEEN")  # Nur ungelesene E-Mails abrufen
-            mail_ids = messages[0].split()
+        logging.info(f"📩 {len(mail_ids)} ungelesene E-Mails gefunden")
 
-            logging.info(f"📩 {len(mail_ids)} ungelesene E-Mails gefunden")
+        if not mail_ids:
+            return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
 
-            if not mail_ids:
-                return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
+        email_id = mail_ids[-1]
+        status, data = mail.fetch(email_id, "(RFC822)")
 
-            # Letzte E-Mail abrufen
-            email_id = mail_ids[-1]
-            status, data = mail.fetch(email_id, "(RFC822)")
+        for response_part in data:
+            if isinstance(response_part, tuple):
+                msg = email.message_from_bytes(response_part[1])
 
-            for response_part in data:
-                if isinstance(response_part, tuple):
-                    msg = email.message_from_bytes(response_part[1])
+                sender = msg["from"]
+                subject = msg["subject"]
+                body = extract_email_body(msg)
 
-                    sender = msg["from"]
-                    subject = msg["subject"]
-                    body = msg.get_payload(decode=True).decode(errors="ignore")
+                logging.info(f"📨 E-Mail erhalten von {sender}: {subject}")
 
-                    logging.info(f"📨 E-Mail erhalten von {sender}: {subject}")
-
-                    return jsonify({
-                        "email": sender,
-                        "subject": subject,
-                        "body": body
-                    })
-
-        except imaplib.IMAP4.error as e:
-            logging.error(f"❌ IMAP-Fehler: {e}")
-            return jsonify({"error": "❌ Fehler beim Verbinden mit dem Mail-Server!"}), 500
+                return jsonify({"email": sender, "subject": subject, "body": body})
 
     except Exception as e:
-        logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}", exc_info=True)
+        logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}")
         return jsonify({"error": "❌ Fehler beim Abrufen der E-Mail!"}), 500
+
+@app.route('/session_test', methods=['GET'])
+    def session_test():
+        """Testet, ob Redis-Sessions richtig gespeichert werden."""
+        try:
+            session["test"] = "Hallo von Redis!"
+            return jsonify({"message": "✅ Redis Session funktioniert!"}), 200
+        except Exception as e:
+            print(f"❌ Fehler mit Redis-Session: {str(e)}")
+            return jsonify({"error": f"❌ Fehler mit Redis: {str(e)}"}), 500
 
 
 if __name__ == "__main__":
