@@ -8,6 +8,8 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from flask_session import Session
 from cryptography.fernet import Fernet
+from bs4 import BeautifulSoup
+
 
 # 🔥 Lade Umgebungsvariablen
 load_dotenv()
@@ -152,23 +154,37 @@ def fetch_latest_unread_email(email_address, email_password, provider):
 
     return None, "❌ Unbekannter Fehler!"
 
-
 def extract_email_body(msg):
-    """Extrahiert den lesbaren Text aus einer E-Mail, unabhängig vom Format."""
+    """Extrahiert den besten verfügbaren Text aus der E-Mail (Plaintext oder HTML)."""
     if msg.is_multipart():
+        text_body = None
+        html_body = None
+
         for part in msg.walk():
             content_type = part.get_content_type()
             content_disposition = str(part.get("Content-Disposition"))
 
-            # 📝 Nur den ersten Text-/HTML-Teil extrahieren
-            if content_type == "text/plain" and "attachment" not in content_disposition:
-                return part.get_payload(decode=True).decode(errors="ignore")
-            elif content_type == "text/html" and "attachment" not in content_disposition:
-                html = part.get_payload(decode=True).decode(errors="ignore")
-                return BeautifulSoup(html, "html.parser").get_text()  # HTML in Klartext umwandeln
+            try:
+                payload = part.get_payload(decode=True)
+                decoded_text = payload.decode(errors="ignore") if payload else None
 
-    # Fallback: Direktes get_payload
-    return msg.get_payload(decode=True).decode(errors="ignore") if msg.get_payload(decode=True) else "⚠️ Kein Textinhalt gefunden."
+                # Falls es eine Klartext-Version gibt, speichern
+                if content_type == "text/plain" and "attachment" not in content_disposition:
+                    text_body = decoded_text
+
+                # Falls es HTML gibt, speichern
+                elif content_type == "text/html" and "attachment" not in content_disposition:
+                    html_body = BeautifulSoup(decoded_text, "html.parser").get_text() if decoded_text else None
+
+            except Exception as e:
+                logging.error(f"❌ Fehler beim Dekodieren der E-Mail: {e}")
+                continue
+
+        return text_body or html_body or "⚠️ Kein lesbarer Inhalt gefunden."
+
+    # Falls es keine Multipart-E-Mail ist:
+    payload = msg.get_payload(decode=True)
+    return payload.decode(errors="ignore") if payload else "⚠️ Kein Inhalt gefunden."
 
 
 # 🏠 **API-Startseite**
