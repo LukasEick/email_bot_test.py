@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 from flask_session import Session
 from cryptography.fernet import Fernet
 from bs4 import BeautifulSoup
-from redis import Redis
+import redis
+
 
 
 # 🔥 Lade Umgebungsvariablen
