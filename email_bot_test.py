@@ -162,25 +162,79 @@ def login():
         logging.error(f"❌ Fehler beim Login: {e}")
         return jsonify({"error": f"❌ Fehler: {e}"}), 500
 
-# 📩 **Letzte ungelesene E-Mail abrufen**
 @app.route('/get_email', methods=['POST'])
 def api_get_email():
-    email_address = session.get("email")
-    email_password = session.get("password")
-    provider_name = session.get("provider")
+    """Holt die letzte ungelesene E-Mail mit detaillierten Logs für Debugging"""
+    try:
+        logging.info("📡 API-Aufruf: /get_email")
 
-    if not email_address or not email_password or not provider_name:
-        return jsonify({"error": "❌ Keine gespeicherten Login-Daten!"}), 401
+        data = request.get_json()
+        logging.info(f"📥 Request-Daten erhalten: {data}")
 
-    provider = EMAIL_PROVIDERS.get(provider_name)
-    if not provider:
-        return jsonify({"error": "❌ Unbekannter E-Mail-Anbieter!"}), 400
+        # Holt gespeicherte Login-Daten aus der Session
+        email_address = session.get("email")
+        email_password = session.get("password")
 
-    email_data, error = fetch_latest_unread_email(email_address, email_password, provider)
-    if error:
-        return jsonify({"error": error}), 400
+        # Falls keine Session existiert, holen wir die Daten aus dem Request
+        if not email_address or not email_password:
+            email_address = data.get("email")
+            email_password = get_login_credentials(email_address)  # Holt Passwort aus DB falls nötig
 
-    return jsonify(email_data)
+        if not email_address or not email_password:
+            logging.warning("⚠️ Keine gültigen Login-Daten gefunden!")
+            return jsonify({"error": "❌ Keine gespeicherten Login-Daten gefunden!"}), 401
+
+        logging.info(f"🔑 E-Mail-Adresse erkannt: {email_address}")
+
+        provider = detect_email_provider(email_address)
+        if not provider:
+            logging.error(f"❌ Unbekannter E-Mail-Anbieter für: {email_address}")
+            return jsonify({"error": "❌ Unbekannter E-Mail-Anbieter!"}), 400
+
+        # Verbindung zum IMAP-Server aufbauen
+        try:
+            logging.info(f"📡 Verbinde mit {provider['imap']} für {email_address}...")
+
+            mail = imaplib.IMAP4_SSL(provider["imap"])
+            mail.login(email_address, email_password)
+            mail.select("inbox")
+
+            status, messages = mail.search(None, "UNSEEN")  # Nur ungelesene E-Mails abrufen
+            mail_ids = messages[0].split()
+
+            logging.info(f"📩 {len(mail_ids)} ungelesene E-Mails gefunden")
+
+            if not mail_ids:
+                return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
+
+            # Letzte E-Mail abrufen
+            email_id = mail_ids[-1]
+            status, data = mail.fetch(email_id, "(RFC822)")
+
+            for response_part in data:
+                if isinstance(response_part, tuple):
+                    msg = email.message_from_bytes(response_part[1])
+
+                    sender = msg["from"]
+                    subject = msg["subject"]
+                    body = msg.get_payload(decode=True).decode(errors="ignore")
+
+                    logging.info(f"📨 E-Mail erhalten von {sender}: {subject}")
+
+                    return jsonify({
+                        "email": sender,
+                        "subject": subject,
+                        "body": body
+                    })
+
+        except imaplib.IMAP4.error as e:
+            logging.error(f"❌ IMAP-Fehler: {e}")
+            return jsonify({"error": "❌ Fehler beim Verbinden mit dem Mail-Server!"}), 500
+
+    except Exception as e:
+        logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}", exc_info=True)
+        return jsonify({"error": "❌ Fehler beim Abrufen der E-Mail!"}), 500
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(PORT), debug=False)
