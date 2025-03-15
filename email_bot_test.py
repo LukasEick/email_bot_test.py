@@ -15,6 +15,12 @@ from redis import Redis
 # 🔥 Lade Umgebungsvariablen
 load_dotenv()
 
+# Hole die Redis-URL aus den Render-Umgebungsvariablen
+REDIS_URL = os.getenv("REDIS_URL")
+
+# Initialisiere Redis-Verbindung
+redis_client = redis.StrictRedis.from_url(REDIS_URL, decode_responses=True)
+
 PORT = os.getenv("PORT", "8080")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -65,7 +71,12 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     return response
 
-print("✅ Flask-Session jetzt mit Redis gespeichert!")
+# Teste die Verbindung
+try:
+    redis_client.ping()
+    print("✅ Verbindung zu Redis erfolgreich!")
+except redis.ConnectionError:
+    print("❌ Verbindung zu Redis fehlgeschlagen!")
 
 # 🔒 **Passwort-Verschlüsselung**
 def encrypt_password(password):
