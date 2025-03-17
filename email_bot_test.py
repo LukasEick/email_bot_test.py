@@ -25,13 +25,22 @@ import json
 from google_auth_oauthlib.flow import Flow
 from flask import redirect, url_for
 
-from google_auth_oauthlib.flow import Flow
 
 google_credentials_json = os.getenv("GOOGLE_CREDENTIALS")
-credentials_data = json.loads(google_credentials_json).get("web", {})
 
-if not credentials_data:
-    raise ValueError("❌ 'web'-Eintrag in GOOGLE_CREDENTIALS JSON fehlt!")
+if not google_credentials_json:
+    raise ValueError("❌ GOOGLE_CREDENTIALS fehlt!")
+
+credentials_data = json.loads(google_credentials_json)
+
+# 🔥 Debugging: Zeigt, was in credentials_data wirklich drin ist
+print("✅ GOOGLE_CREDENTIALS Struktur:", json.dumps(credentials_data, indent=4))
+
+if "web" not in credentials_data:
+    raise ValueError("❌ Der 'web'-Eintrag fehlt in GOOGLE_CREDENTIALS JSON!")
+
+print("✅ 'web' Eintrag existiert in GOOGLE_CREDENTIALS.")
+
 
 flow = Flow.from_client_config(
     credentials_data,
