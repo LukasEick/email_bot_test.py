@@ -106,9 +106,22 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 @app.route('/oauth/login')
 def oauth_login():
     """Startet den Google OAuth-Flow"""
-    flow = Flow.from_client_secrets_file("credentials.json", scopes=SCOPES, redirect_uri="https://dein-backend.com/oauth/callback")
+    google_credentials_json = os.getenv("GOOGLE_CREDENTIALS")
+
+    if not google_credentials_json:
+        return jsonify({"error": "❌ GOOGLE_CREDENTIALS fehlt!"}), 500
+
+    credentials_data = json.loads(google_credentials_json)
+
+    flow = Flow.from_client_config(
+        credentials_data,
+        scopes=["https://mail.google.com/", "openid", "https://www.googleapis.com/auth/userinfo.email"],
+        redirect_uri="https://dein-backend.com/oauth/callback"
+    )
+
     auth_url, _ = flow.authorization_url(prompt="consent")
     return redirect(auth_url)  # Nutzer wird zur Google-Anmeldeseite weitergeleitet
+
 
 
 def authenticate_gmail():
@@ -183,12 +196,24 @@ def detect_language(text):
 
 @app.route('/oauth/callback')
 def oauth_callback():
-    """Speichert das OAuth-Token des Nutzers in Redis"""
-    flow = Flow.from_client_config(credentials_data, scopes=SCOPES, redirect_uri="https://dein-backend.com/oauth/callback")
+    """Empfängt das OAuth-Token nach erfolgreichem Login"""
+    google_credentials_json = os.getenv("GOOGLE_CREDENTIALS")
+
+    if not google_credentials_json:
+        return jsonify({"error": "❌ GOOGLE_CREDENTIALS fehlt!"}), 500
+
+    credentials_data = json.loads(google_credentials_json)
+
+    flow = Flow.from_client_config(
+        credentials_data,
+        scopes=["https://mail.google.com/", "openid", "https://www.googleapis.com/auth/userinfo.email"],
+        redirect_uri="https://dein-backend.com/oauth/callback"
+    )
+
     flow.fetch_token(authorization_response=request.url)
 
     creds = flow.credentials
-    access_token = creds.token
+    access_token = creds.token  # ✅ Speichert das Token des Nutzers
     user_email = creds.id_token.get("email")
 
     if not user_email:
