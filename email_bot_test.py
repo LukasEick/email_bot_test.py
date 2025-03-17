@@ -389,37 +389,37 @@ def api_get_email():
         if not mail_ids:
             return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
 
-        email_id = mail_ids[-10]
-        status, data = mail.fetch(email_id, "(RFC822)")
+        email_queue = []
+        for email_id in mail_ids[-10:]:  # ✅ Holt die letzten 10 ungelesenen E-Mails
+            status, data = mail.fetch(email_id, "(RFC822)")
 
-        for response_part in data:
-            if isinstance(response_part, tuple):
-                msg = email.message_from_bytes(response_part[1])
+            for response_part in data:
+                if isinstance(response_part, tuple):
+                    msg = email.message_from_bytes(response_part[1])
 
-                sender_raw = msg["from"]
-                subject_raw = msg["subject"]
+                    sender_raw = msg["from"]
+                    subject_raw = msg["subject"]
 
-                sender = extract_email_address(sender_raw)  # ✅ Extrahiere saubere E-Mail-Adresse
-                subject = clean_subject(subject_raw)  # ✅ Dekodiere Betreff
-                body = extract_email_body(msg)  # ✅ Extrahiere & bereinige E-Mail-Inhalt
+                    sender = extract_email_address(sender_raw)  # ✅ Extrahiere saubere E-Mail-Adresse
+                    subject = clean_subject(subject_raw)  # ✅ Dekodiere Betreff
+                    body = extract_email_body(msg)  # ✅ Extrahiere & bereinige E-Mail-Inhalt
 
-                language = detect_language(body)  # 🔥 Erkenne Sprache der E-Mail
-                ai_reply = generate_ai_reply(body)  # ✅ KI-generierte Antwort
+                    language = detect_language(body)  # 🔥 Erkenne Sprache der E-Mail
+                    ai_reply = generate_ai_reply(body)  # ✅ KI-generierte Antwort
 
-                logging.info(f"📨 E-Mail von {sender} mit Betreff: {subject}")
-                logging.info(f"🤖 KI-Antwort generiert: {ai_reply}")
+                    email_queue.append({
+                        "email": sender,
+                        "subject": subject,
+                        "body": body,
+                        "reply": ai_reply,
+                        "language": language
+                    })
 
-                return jsonify({
-                    "email": sender,
-                    "subject": subject,
-                    "body": body,
-                    "reply": ai_reply,
-                    "language": language  # 🔥 Sende erkannte Sprache ans Frontend
-                })
+        if not email_queue:
+            return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
 
-    except Exception as e:
-        logging.error(f"❌ Fehler beim Abrufen der E-Mail: {e}")
-        return jsonify({"error": "❌ Fehler beim Abrufen der E-Mail!"}), 500
+        return jsonify({"emails": email_queue})  # 🔥 Jetzt wird eine Liste von E-Mails zurückgegeben!
+
 
 @app.route('/send_reply', methods=['POST', 'OPTIONS'])
 def send_reply():
