@@ -25,13 +25,19 @@ import json
 from google_auth_oauthlib.flow import Flow
 from flask import redirect, url_for
 
-
 google_credentials_json = os.getenv("GOOGLE_CREDENTIALS")
-
 if not google_credentials_json:
-    raise ValueError("❌ GOOGLE_CREDENTIALS fehlt! Stelle sicher, dass die Umgebungsvariable gesetzt ist.")
+    raise ValueError("❌ GOOGLE_CREDENTIALS fehlt! Stelle sicher, dass sie in Render gesetzt ist.")
 
-credentials_data = json.loads(google_credentials_json).get("web", {})
+try:
+    credentials_data = json.loads(google_credentials_json).get("web", {})
+    if not credentials_data:
+        raise ValueError("❌ 'web'-Eintrag fehlt in GOOGLE_CREDENTIALS JSON!")
+
+    print("✅ GOOGLE_CREDENTIALS erfolgreich geladen!")
+except Exception as e:
+    raise ValueError(f"❌ Fehler beim Laden von GOOGLE_CREDENTIALS: {e}")
+
 
 flow = Flow.from_client_config(
     credentials_data,
