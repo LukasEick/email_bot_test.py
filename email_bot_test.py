@@ -25,25 +25,20 @@ import json
 from google_auth_oauthlib.flow import Flow
 from flask import redirect, url_for
 
+from google_auth_oauthlib.flow import Flow
+
 google_credentials_json = os.getenv("GOOGLE_CREDENTIALS")
-if not google_credentials_json:
-    raise ValueError("❌ GOOGLE_CREDENTIALS fehlt! Stelle sicher, dass sie in Render gesetzt ist.")
+credentials_data = json.loads(google_credentials_json).get("web", {})
 
-try:
-    credentials_data = json.loads(google_credentials_json).get("web", {})
-    if not credentials_data:
-        raise ValueError("❌ 'web'-Eintrag fehlt in GOOGLE_CREDENTIALS JSON!")
-
-    print("✅ GOOGLE_CREDENTIALS erfolgreich geladen!")
-except Exception as e:
-    raise ValueError(f"❌ Fehler beim Laden von GOOGLE_CREDENTIALS: {e}")
-
+if not credentials_data:
+    raise ValueError("❌ 'web'-Eintrag in GOOGLE_CREDENTIALS JSON fehlt!")
 
 flow = Flow.from_client_config(
     credentials_data,
     scopes=["https://mail.google.com/", "openid", "https://www.googleapis.com/auth/userinfo.email"],
     redirect_uri="https://email-bot-s8vw.onrender.com/oauth/callback"
 )
+
 
 
 # 🔥 Lade Umgebungsvariablen
