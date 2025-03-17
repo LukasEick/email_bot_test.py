@@ -25,6 +25,22 @@ import json
 from google_auth_oauthlib.flow import Flow
 from flask import redirect, url_for
 
+
+# ✅ Lade die Google OAuth Credentials aus der Umgebungsvariable
+google_credentials_json = os.getenv("GOOGLE_CREDENTIALS")
+
+if not google_credentials_json:
+    raise ValueError("❌ GOOGLE_CREDENTIALS fehlt! Stelle sicher, dass die Umgebungsvariable gesetzt ist.")
+
+credentials_data = json.loads(google_credentials_json)
+
+flow = Flow.from_client_config(
+    credentials_data,
+    scopes=["https://mail.google.com/", "openid", "https://www.googleapis.com/auth/userinfo.email"],
+    redirect_uri="https://dein-backend.com/oauth/callback"
+)
+
+
 # 🔥 Lade Umgebungsvariablen
 load_dotenv()
 
