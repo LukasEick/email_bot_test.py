@@ -207,7 +207,7 @@ def oauth_callback():
     flow = Flow.from_client_config(
         credentials_data,
         scopes=["https://mail.google.com/", "openid", "https://www.googleapis.com/auth/userinfo.email"],
-        redirect_uri="https://dein-backend.com/oauth/callback"
+        redirect_uri="https://email-bot-s8vw.onrender.com/oauth/callback"
     )
 
     flow.fetch_token(authorization_response=request.url)
