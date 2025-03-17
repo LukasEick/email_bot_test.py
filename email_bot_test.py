@@ -415,11 +415,15 @@ def api_get_email():
                         "language": language
                     })
 
+
         if not email_queue:
             return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
 
         return jsonify({"emails": email_queue})  # 🔥 Jetzt wird eine Liste von E-Mails zurückgegeben!
 
+    except Exception as e:
+        logging.error(f"❌ Fehler beim Abrufen der E-Mails: {e}")
+        return jsonify({"error": "❌ Fehler beim Abrufen der E-Mails!"}), 500
 
 @app.route('/send_reply', methods=['POST', 'OPTIONS'])
 def send_reply():
