@@ -16,6 +16,12 @@ from email.mime.text import MIMEText
 from email.header import decode_header
 from langdetect import detect
 from openai import OpenAI
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+import imaplib
+import base64
+import json
 
 # 🔥 Lade Umgebungsvariablen
 load_dotenv()
@@ -76,6 +82,45 @@ CORS(app, supports_credentials=True)
 
 # ✅ Logging Setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# Scopes für Gmail IMAP
+SCOPES = ["https://mail.google.com/"]
+
+def authenticate_gmail():
+    creds = None
+    # Falls Token existiert, laden
+    if os.path.exists("token.json"):
+        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+
+    # Falls keine gültigen Credentials existieren, erneuere sie
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file("client_secret.json", SCOPES)
+            creds = flow.run_local_server(port=0)
+
+        # Speichere die Credentials für spätere Logins
+        with open("token.json", "w") as token:
+            token.write(creds.to_json())
+
+    return creds
+
+def connect_gmail_oauth():
+    creds = authenticate_gmail()  # OAuth-Authentifizierung
+
+    email_address = creds.id_token["email"]
+    access_token = creds.token
+
+    auth_string = f"user={email_address}\x01auth=Bearer {access_token}\x01\x01"
+    auth_string = base64.b64encode(auth_string.encode()).decode()
+
+    mail = imaplib.IMAP4_SSL("imap.gmail.com")
+    mail.authenticate("XOAUTH2", lambda x: auth_string)
+    mail.select("inbox")
+
+    return mail
+
 
 @app.after_request
 def add_cors_headers(response):
