@@ -116,7 +116,7 @@ def oauth_login():
     flow = Flow.from_client_config(
         credentials_data,
         scopes=["https://mail.google.com/", "openid", "https://www.googleapis.com/auth/userinfo.email"],
-        redirect_uri="https://dein-backend.com/oauth/callback"
+        redirect_uri="https://email-bot-s8vw.onrender.com/oauth/callback"
     )
 
     auth_url, _ = flow.authorization_url(prompt="consent")
