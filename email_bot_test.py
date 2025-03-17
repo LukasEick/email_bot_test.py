@@ -48,6 +48,8 @@ EMAIL_PROVIDERS = {
     "gmx.de": {"imap": "imap.gmx.net"},
     "yahoo.com": {"imap": "imap.mail.yahoo.com"},
     "outlook.com": {"imap": "outlook.office365.com"},
+    "hotmail.com": {"imap": "outlook.office365.com"},
+    "live.com": {"imap": "outlook.office365.com"},
 }
 
 # 🔥 Flask Setup mit Redis für Sessions
