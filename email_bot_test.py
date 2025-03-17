@@ -389,7 +389,7 @@ def api_get_email():
         if not mail_ids:
             return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
 
-        email_id = mail_ids[-1]
+        email_id = mail_ids[-10]
         status, data = mail.fetch(email_id, "(RFC822)")
 
         for response_part in data:
