@@ -31,12 +31,12 @@ google_credentials_json = os.getenv("GOOGLE_CREDENTIALS")
 if not google_credentials_json:
     raise ValueError("❌ GOOGLE_CREDENTIALS fehlt! Stelle sicher, dass die Umgebungsvariable gesetzt ist.")
 
-credentials_data = json.loads(google_credentials_json)
+credentials_data = json.loads(google_credentials_json).get("web", {})
 
 flow = Flow.from_client_config(
     credentials_data,
     scopes=["https://mail.google.com/", "openid", "https://www.googleapis.com/auth/userinfo.email"],
-    redirect_uri="https://dein-backend.com/oauth/callback"
+    redirect_uri="https://email-bot-s8vw.onrender.com/oauth/callback"
 )
 
 
