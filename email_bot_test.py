@@ -26,7 +26,6 @@ from google_auth_oauthlib.flow import Flow
 from flask import redirect, url_for
 
 
-# ✅ Lade die Google OAuth Credentials aus der Umgebungsvariable
 google_credentials_json = os.getenv("GOOGLE_CREDENTIALS")
 
 if not google_credentials_json:
@@ -184,23 +183,33 @@ def detect_language(text):
 
 @app.route('/oauth/callback')
 def oauth_callback():
-    """Empfängt das OAuth-Token nach erfolgreichem Login"""
-    flow = Flow.from_client_secrets_file("credentials.json", scopes=SCOPES, redirect_uri="https://dein-backend.com/oauth/callback")
+    """Speichert das OAuth-Token des Nutzers in Redis"""
+    flow = Flow.from_client_config(credentials_data, scopes=SCOPES, redirect_uri="https://dein-backend.com/oauth/callback")
     flow.fetch_token(authorization_response=request.url)
 
     creds = flow.credentials
-    access_token = creds.token  # ✅ Speichert das Token des Nutzers
+    access_token = creds.token
+    user_email = creds.id_token.get("email")
 
-    # 🔥 Speichere das Token in der Session oder Datenbank
-    session["access_token"] = access_token
+    if not user_email:
+        return jsonify({"error": "❌ E-Mail-Adresse konnte nicht ermittelt werden."}), 400
 
-    return redirect(url_for("home"))  # Leite den Nutzer nach Hause um
+    # 🔥 Speichert das Token in Redis mit der Nutzer-E-Mail als Key
+    redis_client.set(f"oauth_token:{user_email}", access_token)
+
+    logging.info(f"✅ OAuth-Token für {user_email} gespeichert.")
+    return redirect(url_for("home"))  # Weiterleitung zur Startseite
 
 
-def gmail_login(access_token):
+def gmail_login(user_email):
     """Meldet sich mit OAuth-Token bei Gmail IMAP an"""
+    access_token = redis_client.get(f"oauth_token:{user_email}")
+
+    if not access_token:
+        raise ValueError("❌ Kein OAuth-Token für den Benutzer gefunden!")
+
     mail = imaplib.IMAP4_SSL("imap.gmail.com")
-    auth_string = f"user=deinemail@gmail.com\1auth=Bearer {access_token}\1\1"
+    auth_string = f"user={user_email}\1auth=Bearer {access_token}\1\1"
     mail.authenticate("XOAUTH2", lambda x: auth_string.encode("utf-8"))
     mail.select("inbox")
     return mail
@@ -443,56 +452,58 @@ def generate_ai_reply(email_body):
 
 @app.route('/get_email', methods=['POST'])
 def api_get_email():
-    """Holt die letzte ungelesene E-Mail mit OAuth2 für Gmail & Passwort für andere Anbieter"""
-    try:
-        email_address = session.get("user")
-        provider = session.get("provider")
+    """Holt die letzte ungelesene E-Mail mit OAuth-Unterstützung für Gmail."""
+    email_address = session.get("user")
+    provider = session.get("provider")
 
-        if provider == "gmail.com":
-            access_token = session.get("access_token")  # 🔥 OAuth-Token für Gmail holen
-            if not access_token:
-                return jsonify({"error": "❌ Kein OAuth-Token gefunden!"}), 401
-            mail = gmail_login(access_token)  # Nutzt Gmail-IMAP mit OAuth
-        else:
-            email_password = session.get("password")
-            if not email_password:
-                return jsonify({"error": "❌ Kein Passwort gespeichert!"}), 401
-            mail = imaplib.IMAP4_SSL(EMAIL_PROVIDERS[provider]["imap"])
-            mail.login(email_address, email_password)  # Normales IMAP-Login für GMX, Outlook
+    if isinstance(email_address, bytes):
+        email_address = email_address.decode("utf-8")
+    if isinstance(provider, bytes):
+        provider = provider.decode("utf-8")
 
-        mail.select("inbox")
-        status, messages = mail.search(None, "UNSEEN")
-        mail_ids = messages[0].split()
+    if not email_address or not provider:
+        logging.warning("⚠️ Keine gültigen Login-Daten gefunden!")
+        return jsonify({"error": "❌ Keine gespeicherten Login-Daten gefunden!"}), 401
 
-        if not mail_ids:
-            return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
+    logging.info(f"🔑 E-Mail-Adresse erkannt: {email_address}")
 
-        # ✅ Holt die letzten 10 ungelesenen E-Mails
-        email_queue = []
-        for email_id in mail_ids[-10:]:
-            status, data = mail.fetch(email_id, "(RFC822)")
-            for response_part in data:
-                if isinstance(response_part, tuple):
-                    msg = email.message_from_bytes(response_part[1])
-                    sender = msg["from"]
-                    subject = msg["subject"]
-                    body = extract_email_body(msg)
-                    language = detect_language(body)
-                    ai_reply = generate_ai_reply(body)
+    if provider == "gmail.com":
+        mail = gmail_login(email_address)  # 🔥 OAuth-Login für Gmail
+    else:
+        email_password = session.get("password")
+        if isinstance(email_password, bytes):
+            email_password = email_password.decode("utf-8")
 
-                    email_queue.append({
-                        "email": sender,
-                        "subject": subject,
-                        "body": body,
-                        "reply": ai_reply,
-                        "language": language
-                    })
+        provider_info = EMAIL_PROVIDERS.get(provider)
+        if not provider_info:
+            return jsonify({"error": "❌ Unbekannter E-Mail-Anbieter!"}), 400
 
-        return jsonify({"emails": email_queue})
+        mail = imaplib.IMAP4_SSL(provider_info["imap"])
+        mail.login(email_address, email_password)
 
-    except Exception as e:
-        logging.error(f"❌ Fehler beim Abrufen der E-Mails: {e}")
-        return jsonify({"error": "❌ Fehler beim Abrufen der E-Mails!"}), 500
+    mail.select("inbox")
+
+    status, messages = mail.search(None, "UNSEEN")
+    mail_ids = messages[0].split()
+
+    if not mail_ids:
+        return jsonify({"error": "📭 Keine neuen E-Mails gefunden!"})
+
+    latest_email_id = mail_ids[-1]
+    status, data = mail.fetch(latest_email_id, "(RFC822)")
+
+    for response_part in data:
+        if isinstance(response_part, tuple):
+            msg = email.message_from_bytes(response_part[1])
+
+            sender = extract_email_address(msg["from"])
+            subject = clean_subject(msg["subject"])
+            body = extract_email_body(msg)
+
+            return jsonify({"email": sender, "subject": subject, "body": body})
+
+    return jsonify({"error": "❌ Fehler beim Abrufen der E-Mail!"})
+
 
 
 @app.route('/send_reply', methods=['POST', 'OPTIONS'])
